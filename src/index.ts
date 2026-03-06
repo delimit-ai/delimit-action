@@ -34,14 +34,9 @@ async function run(): Promise<void> {
     
     core.info(`📋 OpenAPI spec found at: ${specPath}`);
 
-    // Install delimit-cli (will be bundled in future version)
-    core.info('📦 Installing delimit-cli...');
-    try {
-      await exec.exec('npm', ['install', '-g', 'delimit-cli@latest']);
-    } catch {
-      // Fallback if npm registry isn't available yet
-      core.warning('Could not install from npm registry, using local version');
-    }
+    // Install delimit-cli from npm
+    core.info('📦 Installing delimit-cli v1.0.0...');
+    await exec.exec('npm', ['install', '-g', 'delimit-cli@1.0.0']);
 
     // Prepare CLI command with JSON output for reliable parsing
     const cliArgs = [command, absoluteSpecPath, '--output', 'json'];
