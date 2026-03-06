@@ -1,0 +1,39 @@
+name: 'Delimit API Governance'
+description: 'Validate OpenAPI specifications using Delimit governance platform'
+author: 'Delimit.ai'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  api-key:
+    description: 'Your Delimit API key from RapidAPI'
+    required: true
+  spec-path:
+    description: 'Path to the OpenAPI specification file'
+    required: false
+    default: 'openapi.yaml'
+  command:
+    description: 'CLI command to run (validate, diff, analyze)'
+    required: false
+    default: 'validate'
+  fail-on-warning:
+    description: 'Fail the action on warnings (not just errors)'
+    required: false
+    default: 'false'
+  verbose:
+    description: 'Enable verbose output'
+    required: false
+    default: 'false'
+
+outputs:
+  valid:
+    description: 'Whether the specification is valid'
+  error-count:
+    description: 'Number of validation errors'
+  warning-count:
+    description: 'Number of validation warnings'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

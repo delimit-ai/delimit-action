@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.DS_Store
+.env
+.env.local
+coverage/
+.nyc_output/
+*.tgz
+
+# Build outputs (we'll commit dist/ for GitHub Actions)
+# dist/
