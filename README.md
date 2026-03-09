@@ -3,6 +3,7 @@
 Detect breaking API changes in pull requests. Zero configuration required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+![GitHub Action](https://img.shields.io/badge/GitHub_Action-delimit--action-blue)
 
 ## Quick Start
 
@@ -12,10 +13,20 @@ Detect breaking API changes in pull requests. Zero configuration required.
 
 ## What It Detects
 
-- 🔴 Removed endpoints
-- 🔴 Deleted required fields
-- 🔴 Type changes (string → number)
-- 🔴 Breaking parameter modifications
+### Breaking Changes (Will Fail CI)
+- 🔴 **Endpoint removed** - Deleting any existing endpoint
+- 🔴 **Required field removed** - Removing a required field from response
+- 🔴 **Field type changed** - Changing type (e.g., string → number, integer → string)
+- 🔴 **Required parameter added** - Adding new required parameters to existing endpoints
+- 🔴 **Enum value removed** - Removing an existing enum value that clients may use
+- 🔴 **Response field became required** - Changing optional response field to required
+- 🔴 **Parameter type changed** - Changing parameter type (e.g., query → body, string → array)
+
+### Safe Changes (Will Pass)
+- ✅ **New endpoints added** - Adding new endpoints is always safe
+- ✅ **Optional fields added** - Adding optional fields to requests or responses
+- ✅ **Enum values added** - Adding new enum values (backward compatible)
+- ✅ **Documentation changes** - Updates to descriptions, examples, etc.
 
 ## Installation
 
