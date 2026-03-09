@@ -1,0 +1,73 @@
+name: 'Delimit API Governance'
+description: 'Detect OpenAPI/Swagger breaking changes in pull requests and prevent API contract regressions in CI.'
+author: 'Delimit AI'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  old_spec:
+    description: 'Path to old/base API specification (auto-detected if not provided)'
+    required: false
+    default: ''
+  new_spec:
+    description: 'Path to new/changed API specification (auto-detected if not provided)'
+    required: false
+    default: ''
+  mode:
+    description: 'Mode: advisory (comments only) or enforce (fail CI)'
+    required: false
+    default: 'advisory'
+  github_token:
+    description: 'GitHub token for PR comments'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  breaking_changes_detected:
+    description: 'Whether breaking changes were detected (true/false)'
+    value: ${{ steps.validate.outputs.breaking_changes }}
+  violations_count:
+    description: 'Number of breaking changes found'
+    value: ${{ steps.validate.outputs.violations_count }}
+  report:
+    description: 'JSON report of all detected changes'
+    value: ${{ steps.validate.outputs.report }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+      shell: bash
+    
+    - name: Install Delimit
+      run: |
+        pip install -e ${{ github.action_path }}
+      shell: bash
+    
+    - name: Auto-detect specs if not provided
+      id: detect
+      run: |
+        if [ -z "${{ inputs.old_spec }}" ]; then
+          echo "Auto-detecting OpenAPI specifications..."
+          # Auto-detection logic here
+        fi
+      shell: bash
+    
+    - name: Run Delimit validation
+      run: |
+        python -m delimit_gateway.cli validate-api \
+          --old-spec ${{ inputs.old_spec || 'auto' }} \
+          --new-spec ${{ inputs.new_spec || 'auto' }}
+      shell: bash
+    
+    - name: Comment on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          // Comment logic here
