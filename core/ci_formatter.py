@@ -90,83 +90,100 @@ class CIFormatter:
         return "\n".join(lines)
     
     def _format_markdown(self, result: Dict[str, Any]) -> str:
-        """Format as Markdown for PR comments."""
+        """Format as Markdown for PR comments.
+
+        Includes semver classification badge and migration guidance when
+        the result carries semver/explainer data.
+        """
         lines = []
-        
+
         decision = result.get("decision", "unknown")
         violations = result.get("violations", [])
         summary = result.get("summary", {})
-        
-        # Header
+        semver = result.get("semver")  # optional dict from semver_classifier
+
+        # Header — include semver badge when available
+        bump_badge = ""
+        if semver:
+            bump = semver.get("bump", "unknown")
+            bump_badge = {"major": " `MAJOR`", "minor": " `MINOR`", "patch": " `PATCH`", "none": ""}.get(bump, "")
+
         if decision == "fail":
-            lines.append("## 🚨 Delimit Found Breaking Changes\n")
+            lines.append(f"## 🚨 Delimit: Breaking Changes{bump_badge}\n")
         elif decision == "warn":
-            lines.append("## ⚠️ Delimit Found Potential Issues\n")
+            lines.append(f"## ⚠️ Delimit: Potential Issues{bump_badge}\n")
         else:
-            lines.append("## ✅ API Changes Look Good\n")
-        
-        # Summary table
+            lines.append(f"## ✅ API Changes Look Good{bump_badge}\n")
+
+        # Semver + summary table
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        if semver:
+            lines.append(f"| Semver bump | `{semver.get('bump', 'unknown')}` |")
+            if semver.get("next_version"):
+                lines.append(f"| Next version | `{semver['next_version']}` |")
+        lines.append(f"| Total changes | {summary.get('total_changes', 0)} |")
+        lines.append(f"| Breaking | {summary.get('breaking_changes', 0)} |")
         if summary.get("violations", 0) > 0:
-            lines.append("### Summary\n")
-            lines.append("| Metric | Count |")
-            lines.append("|--------|-------|")
-            lines.append(f"| Total Changes | {summary.get('total_changes', 0)} |")
-            lines.append(f"| Breaking Changes | {summary.get('breaking_changes', 0)} |")
-            lines.append(f"| Policy Violations | {summary.get('violations', 0)} |")
-            lines.append("")
-        
+            lines.append(f"| Policy violations | {summary['violations']} |")
+        lines.append("")
+
         # Violations table
         if violations:
             errors = [v for v in violations if v.get("severity") == "error"]
             warnings = [v for v in violations if v.get("severity") == "warning"]
-            
+
             if errors or warnings:
                 lines.append("### Violations\n")
                 lines.append("| Severity | Rule | Description | Location |")
                 lines.append("|----------|------|-------------|----------|")
-                
+
                 for v in errors:
-                    severity = "🔴 **Error**"
                     rule = v.get("name", v.get("rule", "Unknown"))
                     desc = v.get("message", "Unknown violation")
                     location = v.get("path", "-")
-                    lines.append(f"| {severity} | {rule} | {desc} | `{location}` |")
-                
+                    lines.append(f"| 🔴 **Error** | {rule} | {desc} | `{location}` |")
+
                 for v in warnings:
-                    severity = "🟡 Warning"
                     rule = v.get("name", v.get("rule", "Unknown"))
                     desc = v.get("message", "Unknown warning")
                     location = v.get("path", "-")
-                    lines.append(f"| {severity} | {rule} | {desc} | `{location}` |")
-                
+                    lines.append(f"| 🟡 Warning | {rule} | {desc} | `{location}` |")
+
                 lines.append("")
-        
+
         # Detailed changes
         all_changes = result.get("all_changes", [])
         if all_changes and len(all_changes) <= 10:
-            lines.append("### All Changes\n")
             lines.append("<details>")
-            lines.append("<summary>Click to expand</summary>\n")
+            lines.append("<summary>All changes</summary>\n")
             lines.append("```")
             for change in all_changes:
                 breaking = "BREAKING" if change.get("is_breaking") else "safe"
                 lines.append(f"[{breaking}] {change.get('message', 'Unknown change')}")
             lines.append("```")
             lines.append("</details>\n")
-        
+
+        # Migration guidance (from explainer) when available
+        migration = result.get("migration")
+        if migration and decision == "fail":
+            lines.append("<details>")
+            lines.append("<summary>Migration guide</summary>\n")
+            lines.append(migration)
+            lines.append("\n</details>\n")
+
         # Remediation
-        if violations and decision == "fail":
+        if violations and decision == "fail" and not migration:
             lines.append("### 💡 How to Fix\n")
-            lines.append("These changes will break existing API consumers. Consider:")
+            lines.append("1. **Restore removed endpoints** — deprecate before removing")
+            lines.append("2. **Make parameters optional** — don't add required params")
+            lines.append("3. **Use versioning** — create `/v2/` for breaking changes")
+            lines.append("4. **Gradual migration** — provide guides and time")
             lines.append("")
-            lines.append("1. **Restore removed endpoints** - Keep them with deprecation notices")
-            lines.append("2. **Make parameters optional** - Don't add required parameters")
-            lines.append("3. **Use versioning** - Create `/v2/` endpoints for breaking changes")
-            lines.append("4. **Gradual migration** - Provide migration guides and time")
-            lines.append("")
-            lines.append("---")
-            lines.append("*Generated by [Delimit](https://github.com/delimit-ai/delimit) - API Governance for CI/CD*")
-        
+
+        lines.append("---")
+        lines.append("*Generated by [Delimit](https://github.com/delimit-ai/delimit) — ESLint for API contracts*")
+
         return "\n".join(lines)
     
     def _format_github_annotations(self, result: Dict[str, Any]) -> str:

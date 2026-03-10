@@ -1,5 +1,5 @@
 name: 'Delimit API Governance'
-description: 'Detect OpenAPI/Swagger breaking changes in pull requests and prevent API contract regressions in CI.'
+description: 'Detect OpenAPI/Swagger breaking changes in pull requests. Semver classification, migration guides, and policy enforcement for API contracts.'
 author: 'Delimit AI'
 branding:
   icon: 'shield'
@@ -15,21 +15,31 @@ inputs:
     required: false
     default: ''
   mode:
-    description: 'Mode: advisory (comments only) or enforce (fail CI)'
+    description: 'Mode: advisory (comments only) or enforce (fail CI on breaking changes)'
     required: false
     default: 'advisory'
   github_token:
     description: 'GitHub token for PR comments'
     required: false
     default: ${{ github.token }}
+  policy_file:
+    description: 'Path to custom policy file (.delimit/policies.yml)'
+    required: false
+    default: ''
 
 outputs:
   breaking_changes_detected:
     description: 'Whether breaking changes were detected (true/false)'
     value: ${{ steps.validate.outputs.breaking_changes }}
   violations_count:
-    description: 'Number of breaking changes found'
+    description: 'Number of policy violations found'
     value: ${{ steps.validate.outputs.violations_count }}
+  semver_bump:
+    description: 'Recommended semver bump (major/minor/patch/none)'
+    value: ${{ steps.validate.outputs.semver_bump }}
+  next_version:
+    description: 'Computed next version string'
+    value: ${{ steps.validate.outputs.next_version }}
   report:
     description: 'JSON report of all detected changes'
     value: ${{ steps.validate.outputs.report }}
@@ -41,32 +51,171 @@ runs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-    
+
     - name: Install Delimit
       run: |
-        pip install -e ${{ github.action_path }}
+        pip install pyyaml pydantic packaging 2>/dev/null
+        pip install -e "${{ github.action_path }}" 2>/dev/null || true
       shell: bash
-    
-    - name: Auto-detect specs if not provided
-      id: detect
-      run: |
-        if [ -z "${{ inputs.old_spec }}" ]; then
-          echo "Auto-detecting OpenAPI specifications..."
-          # Auto-detection logic here
-        fi
-      shell: bash
-    
+
     - name: Run Delimit validation
+      id: validate
       run: |
-        python -m delimit_gateway.cli validate-api \
-          "${{ inputs.old_spec }}" \
-          "${{ inputs.new_spec }}"
+        python3 << 'DELIMIT_EOF'
+        import json, yaml, sys, os
+
+        sys.path.insert(0, "${{ github.action_path }}")
+
+        from core.diff_engine_v2 import OpenAPIDiffEngine
+        from core.policy_engine import evaluate_with_policy
+
+        old_path = "${{ inputs.old_spec }}"
+        new_path = "${{ inputs.new_spec }}"
+
+        if not old_path or not new_path:
+            print("::notice::No spec files provided. Skipping validation.")
+            with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as f:
+                f.write("breaking_changes=false\n")
+                f.write("violations_count=0\n")
+                f.write("semver_bump=none\n")
+                f.write("report={}\n")
+            sys.exit(0)
+
+        def load(p):
+            with open(p) as f:
+                return yaml.safe_load(f) if p.endswith(('.yaml','.yml')) else json.load(f)
+
+        old_spec = load(old_path)
+        new_spec = load(new_path)
+
+        policy = "${{ inputs.policy_file }}" or None
+        api_name = old_spec.get("info", {}).get("title", "API")
+        current_version = old_spec.get("info", {}).get("version")
+
+        result = evaluate_with_policy(
+            old_spec, new_spec,
+            policy_file=policy,
+            include_semver=True,
+            current_version=current_version,
+            api_name=api_name,
+        )
+
+        semver = result.get("semver", {})
+        breaking = result["summary"]["breaking_changes"] > 0
+        mode = "${{ inputs.mode }}"
+
+        with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as f:
+            f.write(f"breaking_changes={'true' if breaking else 'false'}\n")
+            f.write(f"violations_count={result['summary']['violations']}\n")
+            f.write(f"semver_bump={semver.get('bump', 'none')}\n")
+            f.write(f"next_version={semver.get('next_version', '')}\n")
+            f.write(f"report={json.dumps(result)}\n")
+
+        # Write report for PR comment step
+        with open("/tmp/delimit_report.json", "w") as f:
+            json.dump(result, f)
+
+        # GitHub annotations
+        for v in result.get("violations", []):
+            level = "error" if v["severity"] == "error" else "warning"
+            print(f"::{level} title=Delimit::{v['message']}")
+
+        # Exit code
+        if mode == "enforce" and breaking:
+            sys.exit(1)
+        DELIMIT_EOF
       shell: bash
-    
+
     - name: Comment on PR
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
       with:
         github-token: ${{ inputs.github_token }}
         script: |
-          // Comment logic here
+          const fs = require('fs');
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync('/tmp/delimit_report.json', 'utf8'));
+          } catch (e) {
+            console.log('No report file found, skipping PR comment');
+            return;
+          }
+
+          const semver = report.semver || {};
+          const summary = report.summary || {};
+          const decision = report.decision || 'unknown';
+          const violations = report.violations || [];
+          const allChanges = report.all_changes || [];
+          const migration = report.migration || '';
+
+          // Build markdown
+          const bump = semver.bump ? ` \`${semver.bump.toUpperCase()}\`` : '';
+          let header;
+          if (decision === 'fail') header = `## 🚨 Delimit: Breaking Changes${bump}\n`;
+          else if (decision === 'warn') header = `## ⚠️ Delimit: Potential Issues${bump}\n`;
+          else header = `## ✅ API Changes Look Good${bump}\n`;
+
+          let body = header + '\n';
+
+          // Summary table
+          body += '| Metric | Value |\n|--------|-------|\n';
+          if (semver.bump) body += `| Semver bump | \`${semver.bump}\` |\n`;
+          if (semver.next_version) body += `| Next version | \`${semver.next_version}\` |\n`;
+          body += `| Total changes | ${summary.total_changes || 0} |\n`;
+          body += `| Breaking | ${summary.breaking_changes || 0} |\n`;
+          if (summary.violations > 0) body += `| Violations | ${summary.violations} |\n`;
+          body += '\n';
+
+          // Violations
+          const errors = violations.filter(v => v.severity === 'error');
+          const warnings = violations.filter(v => v.severity === 'warning');
+          if (errors.length || warnings.length) {
+            body += '### Violations\n\n';
+            body += '| Severity | Rule | Description | Location |\n';
+            body += '|----------|------|-------------|----------|\n';
+            errors.forEach(v => body += `| 🔴 **Error** | ${v.name || v.rule} | ${v.message} | \`${v.path}\` |\n`);
+            warnings.forEach(v => body += `| 🟡 Warning | ${v.name || v.rule} | ${v.message} | \`${v.path}\` |\n`);
+            body += '\n';
+          }
+
+          // Changes detail
+          if (allChanges.length && allChanges.length <= 10) {
+            body += '<details>\n<summary>All changes</summary>\n\n```\n';
+            allChanges.forEach(c => body += `[${c.is_breaking ? 'BREAKING' : 'safe'}] ${c.message}\n`);
+            body += '```\n</details>\n\n';
+          }
+
+          // Migration guide
+          if (migration && decision === 'fail') {
+            body += '<details>\n<summary>Migration guide</summary>\n\n';
+            body += migration + '\n\n</details>\n\n';
+          }
+
+          body += '---\n*Generated by [Delimit](https://github.com/delimit-ai/delimit) — ESLint for API contracts*';
+
+          // Find existing comment to update
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const existing = comments.find(c =>
+            c.user.type === 'Bot' && c.body.includes('Delimit')
+          );
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }

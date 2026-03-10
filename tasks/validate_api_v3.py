@@ -106,6 +106,23 @@ def validate_api_handler(request: ValidateAPIRequest) -> APIChangeEvidence:
             documentation="https://docs.delimit.ai/api-versioning"
         )
     
+    # Semver classification
+    semver_data = None
+    try:
+        from core.semver_classifier import classify_detailed, classify, bump_version
+        detail = classify_detailed(all_changes)
+        semver_data = {
+            "bump": detail["bump"],
+            "counts": detail["counts"],
+        }
+        # Try to extract version from spec info
+        old_version = old_spec.get("info", {}).get("version")
+        if old_version:
+            semver_data["current_version"] = old_version
+            semver_data["next_version"] = bump_version(old_version, classify(all_changes))
+    except Exception:
+        pass
+
     # Return evidence contract
     return APIChangeEvidence(
         task="validate-api",
@@ -120,7 +137,8 @@ def validate_api_handler(request: ValidateAPIRequest) -> APIChangeEvidence:
         metrics={
             "endpoints_checked": len(old_paths | new_paths),
             "breaking_changes": len(breaking_changes),
-            "non_breaking_changes": len(non_breaking_changes)
+            "non_breaking_changes": len(non_breaking_changes),
+            **({"semver_bump": semver_data["bump"]} if semver_data else {}),
         },
         breaking_changes=breaking_changes,
         non_breaking_changes=non_breaking_changes,
