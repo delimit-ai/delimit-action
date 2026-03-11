@@ -1,5 +1,5 @@
 name: 'Delimit API Governance'
-description: 'Detect OpenAPI/Swagger breaking changes in pull requests. Semver classification, migration guides, and policy enforcement for API contracts.'
+description: 'Detect breaking API changes in PRs. Semver classification + migration guides.'
 author: 'Delimit AI'
 branding:
   icon: 'shield'
