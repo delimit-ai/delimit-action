@@ -32,15 +32,27 @@ on: pull_request
 jobs:
   delimit:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: delimit-ai/delimit-action@v1
         with:
-          old_spec: api/openapi-base.yaml
-          new_spec: api/openapi.yaml
+          spec: api/openapi.yaml
 ```
 
-That is it. Delimit runs in **advisory mode** by default — it posts a PR comment but never fails your build.
+That is it. Delimit auto-fetches the base branch version of your spec and diffs it against the PR changes. Runs in **advisory mode** by default — posts a PR comment but never fails your build.
+
+### Advanced: explicit base and head specs
+
+If you need to compare specific files (e.g., pre-checked-out base branch), use `old_spec` and `new_spec` instead:
+
+```yaml
+      - uses: delimit-ai/delimit-action@v1
+        with:
+          old_spec: base/api/openapi.yaml
+          new_spec: api/openapi.yaml
+```
 
 ---
 

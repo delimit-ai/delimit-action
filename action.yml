@@ -6,12 +6,18 @@ branding:
   color: 'blue'
 
 inputs:
+  spec:
+    description: 'Path to OpenAPI spec file. Delimit auto-fetches the base branch version. (Simplest setup)'
+    required: false
+    default: ''
   old_spec:
-    description: 'Path to the old/base OpenAPI spec file (YAML or JSON)'
-    required: true
+    description: 'Path to the old/base OpenAPI spec file. Use with new_spec for advanced setups.'
+    required: false
+    default: ''
   new_spec:
-    description: 'Path to the new/changed OpenAPI spec file (YAML or JSON)'
-    required: true
+    description: 'Path to the new/changed OpenAPI spec file. Use with old_spec for advanced setups.'
+    required: false
+    default: ''
   mode:
     description: 'Mode: advisory (comments only) or enforce (fail CI on breaking changes)'
     required: false
@@ -56,6 +62,41 @@ runs:
         pip install -e "${{ github.action_path }}" 2>/dev/null || true
       shell: bash
 
+    - name: Resolve spec inputs
+      id: resolve
+      run: |
+        SPEC="${{ inputs.spec }}"
+        OLD="${{ inputs.old_spec }}"
+        NEW="${{ inputs.new_spec }}"
+
+        if [ -n "$SPEC" ] && [ -z "$OLD" ] && [ -z "$NEW" ]; then
+          # Simple mode: auto-fetch base branch version
+          if [ -z "${{ github.event.pull_request.base.sha }}" ]; then
+            echo "::error::The 'spec' input requires a pull_request event. Use old_spec/new_spec for other triggers."
+            exit 1
+          fi
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          echo "Fetching base branch spec at $BASE_SHA..."
+          git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
+          TMPFILE="/tmp/delimit_base_spec_$(date +%s)"
+          if git show "$BASE_SHA:$SPEC" > "$TMPFILE" 2>/dev/null; then
+            echo "resolved_old=$TMPFILE" >> "$GITHUB_OUTPUT"
+            echo "resolved_new=$SPEC" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Spec not found in base branch — treating as new API (no breaking changes possible)"
+            echo "resolved_old=" >> "$GITHUB_OUTPUT"
+            echo "resolved_new=" >> "$GITHUB_OUTPUT"
+          fi
+        elif [ -n "$OLD" ] && [ -n "$NEW" ]; then
+          # Advanced mode: explicit paths
+          echo "resolved_old=$OLD" >> "$GITHUB_OUTPUT"
+          echo "resolved_new=$NEW" >> "$GITHUB_OUTPUT"
+        else
+          echo "::error::Provide either 'spec' (simple) or both 'old_spec' and 'new_spec' (advanced)."
+          exit 1
+        fi
+      shell: bash
+
     - name: Run Delimit validation
       id: validate
       run: |
@@ -67,12 +108,18 @@ runs:
         from core.diff_engine_v2 import OpenAPIDiffEngine
         from core.policy_engine import evaluate_with_policy
 
-        old_path = "${{ inputs.old_spec }}"
-        new_path = "${{ inputs.new_spec }}"
+        old_path = "${{ steps.resolve.outputs.resolved_old }}"
+        new_path = "${{ steps.resolve.outputs.resolved_new }}"
 
         if not old_path or not new_path:
-            print("::error::Both old_spec and new_spec inputs are required.")
-            sys.exit(1)
+            # No specs to compare (new API or resolve step skipped)
+            with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as f:
+                f.write("breaking_changes=false\n")
+                f.write("violations_count=0\n")
+                f.write("semver_bump=none\n")
+                f.write("next_version=\n")
+                f.write("report={}\n")
+            sys.exit(0)
 
         def load(p):
             with open(p) as f:
