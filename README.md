@@ -43,6 +43,32 @@ jobs:
 
 That is it. Delimit auto-fetches the base branch version of your spec and diffs it against the PR changes. Runs in **advisory mode** by default — posts a PR comment but never fails your build.
 
+### What the PR comment looks like
+
+When Delimit detects breaking changes, it posts a comment like this:
+
+> **Delimit API Governance** | Breaking Changes Detected
+>
+> | Change | Path | Severity |
+> |--------|------|----------|
+> | endpoint_removed | `DELETE /pets/{petId}` | error |
+> | type_changed | `/pets:GET:200[].id` (string → integer) | warning |
+> | enum_value_removed | `/pets:GET:200[].status` | warning |
+>
+> **Semver**: MAJOR (1.0.0 → 2.0.0)
+>
+> <details><summary>Migration Guide (3 steps)</summary>
+>
+> **Step 1**: `DELETE /pets/{petId}` was removed. Update clients to use an alternative endpoint or remove calls to this path.
+>
+> **Step 2**: `id` changed from `string` to `integer`. Update serialization logic, type assertions, and database column types.
+>
+> **Step 3**: `status` enum value `"pending"` was removed. Update clients to stop sending this value.
+>
+> </details>
+
+This is real output from [delimit-quickstart](https://github.com/delimit-ai/delimit-quickstart) — a Pet Store API with intentional breaking changes.
+
 ### Advanced: explicit base and head specs
 
 If you need to compare specific files (e.g., pre-checked-out base branch), use `old_spec` and `new_spec` instead:
