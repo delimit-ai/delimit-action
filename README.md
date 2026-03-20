@@ -67,7 +67,7 @@ When Delimit detects breaking changes, it posts a comment like this:
 >
 > </details>
 
-This is real output from [delimit-quickstart](https://github.com/delimit-ai/delimit-quickstart) — a Pet Store API with intentional breaking changes.
+See the [live PR comment](https://github.com/delimit-ai/delimit-quickstart/pull/1) from [delimit-quickstart](https://github.com/delimit-ai/delimit-quickstart) — a Pet Store API with intentional breaking changes.
 
 ### Advanced: explicit base and head specs
 
