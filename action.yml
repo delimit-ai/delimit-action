@@ -123,7 +123,12 @@ runs:
 
         def load(p):
             with open(p) as f:
-                return yaml.safe_load(f) if p.endswith(('.yaml','.yml')) else json.load(f)
+                content = f.read()
+            # Try YAML first (superset of JSON), fall back to JSON
+            try:
+                return yaml.safe_load(content)
+            except Exception:
+                return json.loads(content)
 
         old_spec = load(old_path)
         new_spec = load(new_path)
