@@ -1,6 +1,12 @@
-# Delimit GitHub Action
+```
+    ____  ________    ______  _____________
+   / __ \/ ____/ /   /  _/  |/  /  _/_  __/
+  / / / / __/ / /    / // /|_/ // /  / /
+ / /_/ / /___/ /____/ // /  / // /  / /
+/_____/_____/_____/___/_/  /_/___/ /_/
+```
 
-**ESLint for API contracts** — detect breaking changes, enforce semver, and generate migration guides for OpenAPI specs.
+**Catch breaking API changes before merge** — semver classification, migration guides, and policy enforcement for OpenAPI specs.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-api-governance)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
