@@ -201,7 +201,8 @@ runs:
 
           let body = '';
           if (bc > 0) body += `## ${badge} — Breaking Changes Detected\n\n`;
-          else body += `## ${badge} — API Changes Look Good\n\n`;
+          else if (total > 0) body += `## ✅ Governance Passed — No Breaking Changes\n\n`;
+          else body += `## ✅ Governance Passed — No API Changes Detected\n\n`;
 
           // Summary line
           const parts = [`**${total}** change${total !== 1 ? 's' : ''}`];
@@ -258,7 +259,12 @@ runs:
             body += '\n</details>\n\n';
           }
 
-          body += '---\n*[Delimit](https://github.com/delimit-ai/delimit) · API governance for CI/CD*';
+          // Footer with CTA
+          body += '---\n';
+          if (bc > 0) {
+            body += `> Run locally: \`npx delimit-cli lint ${context.payload.pull_request?.head?.repo?.full_name ? '' : 'api/openapi.yaml'}\`\n\n`;
+          }
+          body += '*[Delimit](https://github.com/delimit-ai/delimit) · [Install](https://github.com/marketplace/actions/delimit-api-governance) · One workspace for every AI coding assistant*';
 
           // Find existing comment to update
           const { data: comments } = await github.rest.issues.listComments({
