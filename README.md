@@ -67,7 +67,7 @@ When Delimit detects breaking changes, it posts a comment like this:
 >
 > </details>
 
-See the [live PR comment](https://github.com/delimit-ai/delimit-quickstart/pull/1) from [delimit-quickstart](https://github.com/delimit-ai/delimit-quickstart) — a Pet Store API with intentional breaking changes.
+See the [live demo](https://github.com/delimit-ai/delimit-demo/pull/1) — a Users API migration with 6 breaking changes detected, severity badges, and a migration guide.
 
 ### Advanced: explicit base and head specs
 
