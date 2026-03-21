@@ -67,7 +67,7 @@ When Delimit detects breaking changes, it posts a comment like this:
 >
 > </details>
 
-See the [live demo](https://github.com/delimit-ai/delimit-demo/pull/1) — a Users API migration with 6 breaking changes detected, severity badges, and a migration guide.
+See the [live demo](https://github.com/delimit-ai/delimit-action-demo/pull/1) — a Users API migration with 6 breaking changes detected, severity badges, and a migration guide.
 
 ### Advanced: explicit base and head specs
 
