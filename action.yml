@@ -164,9 +164,7 @@ runs:
             level = "error" if v["severity"] == "error" else "warning"
             print(f"::{level} title=Delimit::{v['message']}")
 
-        # Exit code
-        if mode == "enforce" and breaking:
-            sys.exit(1)
+        # Don't exit here — let the comment step run first
         DELIMIT_EOF
       shell: bash
 
@@ -288,3 +286,10 @@ runs:
               body,
             });
           }
+
+    - name: Enforce breaking change policy
+      if: inputs.mode == 'enforce' && steps.validate.outputs.breaking_changes == 'true'
+      run: |
+        echo "::error::Breaking API changes detected. CI blocked by Delimit enforce mode."
+        exit 1
+      shell: bash
