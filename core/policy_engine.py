@@ -405,12 +405,17 @@ def evaluate_with_policy(
     # Semver classification
     if include_semver:
         try:
-            from core.semver_classifier import classify_detailed, bump_version
+            from core.semver_classifier import SemverBump, classify_detailed, bump_version
             semver_data = classify_detailed(changes)
-            semver_result = {"bump": semver_data["bump"].value}
+            bump_value = semver_data["bump"]
+            semver_result = {"bump": bump_value}
             if current_version:
                 semver_result["current_version"] = current_version
-                semver_result["next_version"] = bump_version(current_version, semver_data["bump"])
+                try:
+                    bump_enum = SemverBump(bump_value)
+                except ValueError:
+                    bump_enum = SemverBump.NONE
+                semver_result["next_version"] = bump_version(current_version, bump_enum)
             result["semver"] = semver_result
         except Exception:
             result["semver"] = {"bump": "none"}

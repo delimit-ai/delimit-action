@@ -56,10 +56,9 @@ runs:
       with:
         python-version: '3.10'
 
-    - name: Install Delimit
+    - name: Install Delimit runtime deps
       run: |
         pip install pyyaml pydantic packaging 2>/dev/null
-        pip install -e "${{ github.action_path }}" 2>/dev/null || true
       shell: bash
 
     - name: Resolve spec inputs

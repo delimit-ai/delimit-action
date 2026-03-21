@@ -167,6 +167,32 @@ class TestPolicyEngineDefaultRules(unittest.TestCase):
         self.assertEqual(len(engine.rules), len(PolicyEngine.DEFAULT_RULES))
 
 
+class TestPolicyEngineSemver(unittest.TestCase):
+    """Policy evaluation returns semver metadata for action outputs."""
+
+    def test_breaking_changes_get_major_bump_and_next_version(self):
+        result = evaluate_with_policy(
+            V1,
+            V2_BREAKING,
+            include_semver=True,
+            current_version=V1["info"]["version"],
+            api_name=V1["info"]["title"],
+        )
+        self.assertEqual(result["semver"]["bump"], "major")
+        self.assertEqual(result["semver"]["next_version"], "2.0.0")
+
+    def test_safe_changes_get_minor_bump_and_next_version(self):
+        result = evaluate_with_policy(
+            V1,
+            V2_SAFE,
+            include_semver=True,
+            current_version=V1["info"]["version"],
+            api_name=V1["info"]["title"],
+        )
+        self.assertEqual(result["semver"]["bump"], "minor")
+        self.assertEqual(result["semver"]["next_version"], "1.1.0")
+
+
 # ===================================================================
 # Semver Classifier Tests
 # ===================================================================

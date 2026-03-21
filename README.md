@@ -126,13 +126,14 @@ jobs:
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
+| `spec` | No | `''` | Path to the changed OpenAPI spec. On pull requests, Delimit auto-fetches the base branch version for comparison. |
 | `old_spec` | No | `''` | Path to the old/base API specification file. |
 | `new_spec` | No | `''` | Path to the new/changed API specification file. |
 | `mode` | No | `advisory` | `advisory` (comments only) or `enforce` (fails CI on breaking changes). |
 | `github_token` | No | `${{ github.token }}` | GitHub token used to post PR comments. |
 | `policy_file` | No | `''` | Path to a custom policy file (e.g., `.delimit/policies.yml`). |
 
-> **Note**: If `old_spec` and `new_spec` are both omitted, Delimit skips validation and exits cleanly. Provide both paths to enable change detection.
+> **Note**: Provide either `spec` for pull request workflows, or both `old_spec` and `new_spec` for explicit comparisons. If neither form is provided, the action exits with an error.
 
 ---
 
