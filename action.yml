@@ -1,9 +1,9 @@
 name: 'Delimit API Governance'
-description: 'Detect breaking API changes in PRs. Semver classification + migration guides.'
+description: 'Catch breaking API changes before merge. Semver classification, migration guides, and policy enforcement for OpenAPI specs.'
 author: 'Delimit AI'
 branding:
   icon: 'shield'
-  color: 'blue'
+  color: 'purple'
 
 inputs:
   spec:
