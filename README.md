@@ -1,10 +1,4 @@
-```
-    ____  ________    ______  _____________
-   / __ \/ ____/ /   /  _/  |/  /  _/_  __/
-  / / / / __/ / /    / // /|_/ // /  / /
- / /_/ / /___/ /____/ // /  / // /  / /
-/_____/_____/_____/___/_/  /_/___/ /_/
-```
+# `</>` Delimit GitHub Action
 
 **Catch breaking API changes before merge** — semver classification, migration guides, and policy enforcement for OpenAPI specs.
 
