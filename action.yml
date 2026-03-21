@@ -200,16 +200,27 @@ runs:
           const badge = badges[bump] || bump.toUpperCase();
 
           let body = '';
-          if (bc > 0) body += `## ${badge} — Breaking Changes Detected\n\n`;
-          else if (total > 0) body += `## ✅ Governance Passed — No Breaking Changes\n\n`;
-          else body += `## ✅ Governance Passed — No API Changes Detected\n\n`;
 
-          // Summary line
-          const parts = [`**${total}** change${total !== 1 ? 's' : ''}`];
-          if (bc > 0) parts.push(`**${bc}** breaking`);
-          if (additive > 0) parts.push(`**${additive}** additive`);
-          if (semver.next_version) parts.push(`next: \`${semver.next_version}\``);
-          body += parts.join(' · ') + '\n\n';
+          // Header with impact summary
+          if (bc > 0) {
+            body += `## ${badge} — Breaking Changes Detected\n\n`;
+            body += `> **Impact:** ${bc} breaking change${bc !== 1 ? 's' : ''} found`;
+            if (semver.next_version) body += ` — requires version bump to \`${semver.next_version}\``;
+            body += `\n\n`;
+          } else if (total > 0) {
+            body += `## ✅ Governance Passed — No Breaking Changes\n\n`;
+            body += `> **Safe to merge.** ${additive} additive change${additive !== 1 ? 's' : ''} detected.\n\n`;
+          } else {
+            body += `## ✅ Governance Passed — No API Changes Detected\n\n`;
+          }
+
+          // Stats bar
+          if (total > 0) {
+            const parts = [`**${total}** change${total !== 1 ? 's' : ''}`];
+            if (bc > 0) parts.push(`**${bc}** breaking`);
+            if (additive > 0) parts.push(`**${additive}** additive`);
+            body += parts.join(' · ') + '\n\n';
+          }
 
           // Breaking changes table
           const errors = violations.filter(v => v.severity === 'error');
