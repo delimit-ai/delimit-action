@@ -11,7 +11,7 @@ Delimit runs on every pull request, compares your OpenAPI spec against the base 
 
 ## Features
 
-- **Breaking change detection** — catches 10 categories of breaking changes across endpoints, parameters, response schemas, types, and enums
+- **Breaking change detection** — catches 27 types of changes (17 breaking, 10 non-breaking) across endpoints, parameters, response schemas, types, enums, security, and constraints
 - **Semver classification** — deterministic `major` / `minor` / `patch` / `none` bump recommendation with computed next version
 - **Migration guides** — auto-generated step-by-step migration instructions for every breaking change
 - **PR comments** — rich Markdown summary posted directly on your pull request, updated on each push
@@ -67,7 +67,7 @@ When Delimit detects breaking changes, it posts a comment like this:
 >
 > </details>
 
-See the [live demo](https://github.com/delimit-ai/delimit-action-demo/pull/2) — a Users API migration with 6 breaking changes detected, severity badges, and a migration guide.
+See the [live demo](https://github.com/delimit-ai/delimit-action-demo/pull/2) — a Users API migration with 23 breaking changes detected across 27 change types, severity badges, and a migration guide.
 
 ### Advanced: explicit base and head specs
 
