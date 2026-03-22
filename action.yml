@@ -194,88 +194,122 @@ runs:
           const bc = summary.breaking_changes || 0;
           const total = summary.total_changes || 0;
           const additive = total - bc;
+          const mode = '${{ inputs.mode }}';
 
-          // Badge
-          const badges = { major: '🔴 MAJOR', minor: '🟡 MINOR', patch: '🟢 PATCH', none: '⚪ NONE' };
-          const badge = badges[bump] || bump.toUpperCase();
+          // Severity mapping
+          const severityOf = (rule) => {
+            const critical = ['no_endpoint_removal', 'no_method_removal', 'no_field_removal', 'no_response_field_removal'];
+            const high = ['no_required_param_addition', 'warn_type_change', 'no_type_changes', 'no_enum_removal'];
+            if (critical.includes(rule)) return { icon: '\u{1F534}', label: 'Critical' };
+            if (high.includes(rule)) return { icon: '\u{1F7E0}', label: 'High' };
+            return { icon: '\u{1F7E1}', label: 'Medium' };
+          };
+
+          const errors = violations.filter(v => v.severity === 'error');
+          const warnings = violations.filter(v => v.severity === 'warning');
 
           let body = '';
 
-          // Header with impact summary
-          if (bc > 0) {
-            body += `## ${badge} — Breaking Changes Detected\n\n`;
-            body += `> **Impact:** ${bc} breaking change${bc !== 1 ? 's' : ''} found`;
-            if (semver.next_version) body += ` — requires version bump to \`${semver.next_version}\``;
+          if (bc === 0) {
+            // ── GREEN PATH: no breaking changes ──
+            const semverLabel = bump === 'minor' ? 'MINOR' : bump === 'patch' ? 'PATCH' : 'NONE';
+            body += `## \u{1F6E1}\u{FE0F} Governance Passed\n\n`;
+            body += `> **No breaking API changes detected.**`;
+            if (total > 0) {
+              body += ` ${additive} additive change${additive !== 1 ? 's' : ''} found \u{2014} Semver: **${semverLabel}**`;
+            }
             body += `\n\n`;
-          } else if (total > 0) {
-            body += `## ✅ Governance Passed — No Breaking Changes\n\n`;
-            body += `> **Safe to merge.** ${additive} additive change${additive !== 1 ? 's' : ''} detected.\n\n`;
+
+            // Additive changes (collapsed)
+            const safeChanges = allChanges.filter(c => !c.is_breaking);
+            if (safeChanges.length > 0) {
+              body += `<details>\n<summary>\u{2705} New additions (${safeChanges.length})</summary>\n\n`;
+              safeChanges.forEach(c => body += `- \`${c.path || ''}\` \u{2014} ${c.message}\n`);
+              body += `\n</details>\n\n`;
+            }
           } else {
-            body += `## ✅ Governance Passed — No API Changes Detected\n\n`;
+            // ── RED PATH: breaking changes detected ──
+            body += `## \u{1F6E1}\u{FE0F} Breaking API Changes Detected\n\n`;
+
+            // Summary card
+            const parts = [];
+            parts.push(`\u{1F534} **${bc} breaking change${bc !== 1 ? 's' : ''}**`);
+            parts.push(`Semver: **MAJOR**`);
+            if (semver.next_version) parts.push(`Next: \`${semver.next_version}\``);
+            if (mode === 'enforce') parts.push(`\u{1F6A8} **CI blocked**`);
+            body += `> ${parts.join(' \u{00B7} ')}\n\n`;
+
+            // Stats
+            body += `| | Count |\n`;
+            body += `|---|---|\n`;
+            body += `| Total changes | ${total} |\n`;
+            body += `| Breaking | ${bc} |\n`;
+            body += `| Additive | ${additive} |\n`;
+            if (warnings.length > 0) body += `| Warnings | ${warnings.length} |\n`;
+            body += `\n`;
+
+            // Breaking changes table
+            if (errors.length || warnings.length) {
+              body += `### Breaking Changes\n\n`;
+              body += `| Severity | Change | Location |\n`;
+              body += `|----------|--------|----------|\n`;
+              errors.forEach(v => {
+                const s = severityOf(v.rule);
+                body += `| ${s.icon} ${s.label} | ${v.message} | \`${v.path}\` |\n`;
+              });
+              warnings.forEach(v => {
+                body += `| \u{1F7E1} Warning | ${v.message} | \`${v.path}\` |\n`;
+              });
+              body += `\n`;
+            }
+
+            // Policy violations (separate section when there are warnings alongside errors)
+            if (warnings.length > 0 && errors.length > 0) {
+              body += `<details>\n<summary>\u{26A0}\u{FE0F} Policy warnings (${warnings.length})</summary>\n\n`;
+              warnings.forEach(v => {
+                body += `- \u{1F7E1} \`${v.path}\` \u{2014} ${v.message}\n`;
+              });
+              body += `\n</details>\n\n`;
+            }
+
+            // Migration guide
+            if (migration && decision === 'fail') {
+              body += `<details>\n<summary>\u{1F4CB} Migration guide</summary>\n\n`;
+              body += migration + '\n\n</details>\n\n';
+            } else if (errors.length > 0) {
+              body += `<details>\n<summary>\u{1F4CB} Migration guide</summary>\n\n`;
+              const hints = {
+                no_endpoint_removal: 'Consumers must stop calling this endpoint. Consider a deprecation period before removal.',
+                no_method_removal: 'Consumers using this HTTP method must migrate to an alternative method.',
+                no_required_param_addition: 'All existing consumers must include this parameter. Consider making it optional with a default value.',
+                no_field_removal: 'Consumers reading this field will break. Add it back or provide a migration path.',
+                no_response_field_removal: 'Consumers reading this field will break. Add it back or provide a migration path.',
+                no_type_changes: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
+                warn_type_change: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
+                no_enum_removal: 'Consumers using this value must update. Consider keeping it as deprecated.',
+              };
+              errors.forEach((v, i) => {
+                body += `**${i + 1}. \`${v.path}\`**\n`;
+                body += `${hints[v.rule] || 'Review this change and update consumers accordingly.'}\n\n`;
+              });
+              body += `</details>\n\n`;
+            }
+
+            // Additive changes (collapsed)
+            const safeChanges = allChanges.filter(c => !c.is_breaking);
+            if (safeChanges.length > 0) {
+              body += `<details>\n<summary>\u{2705} New additions (${safeChanges.length})</summary>\n\n`;
+              safeChanges.forEach(c => body += `- \`${c.path || ''}\` \u{2014} ${c.message}\n`);
+              body += `\n</details>\n\n`;
+            }
+
+            // Local run hint
+            body += `> **Fix locally:** \`npx delimit-cli lint\`\n\n`;
           }
 
-          // Stats bar
-          if (total > 0) {
-            const parts = [`**${total}** change${total !== 1 ? 's' : ''}`];
-            if (bc > 0) parts.push(`**${bc}** breaking`);
-            if (additive > 0) parts.push(`**${additive}** additive`);
-            body += parts.join(' · ') + '\n\n';
-          }
-
-          // Breaking changes table
-          const errors = violations.filter(v => v.severity === 'error');
-          const warnings = violations.filter(v => v.severity === 'warning');
-          if (errors.length || warnings.length) {
-            body += '### Breaking Changes\n\n';
-            body += '| Change | Location | Severity |\n';
-            body += '|--------|----------|----------|\n';
-            const severityMap = (rule) => {
-              const critical = ['no_endpoint_removal', 'no_method_removal', 'no_field_removal'];
-              const high = ['no_required_param_addition', 'no_type_changes', 'no_enum_removal'];
-              if (critical.includes(rule)) return '🔴 Critical';
-              if (high.includes(rule)) return '🟠 High';
-              return '🟡 Medium';
-            };
-            errors.forEach(v => body += `| ${v.message} | \`${v.path}\` | ${severityMap(v.rule)} |\n`);
-            warnings.forEach(v => body += `| ${v.message} | \`${v.path}\` | 🟡 Warning |\n`);
-            body += '\n';
-          }
-
-          // Migration guide
-          if (migration && decision === 'fail') {
-            body += '<details>\n<summary>📋 Migration guide</summary>\n\n';
-            body += migration + '\n\n</details>\n\n';
-          } else if (errors.length > 0) {
-            body += '<details>\n<summary>📋 Migration guide</summary>\n\n';
-            const hints = {
-              no_endpoint_removal: 'Consumers must stop calling this endpoint. Consider a deprecation period.',
-              no_method_removal: 'Consumers using this HTTP method must migrate to an alternative.',
-              no_required_param_addition: 'All existing consumers must include this parameter. Consider making it optional with a default.',
-              no_field_removal: 'Consumers reading this field will break. Add it back or provide a migration path.',
-              no_type_changes: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
-              no_enum_removal: 'Consumers using this value must update. Consider keeping it as deprecated.',
-            };
-            errors.forEach((v, i) => {
-              body += `**${i + 1}. ${v.path}**\n`;
-              body += `- ${hints[v.rule] || 'Review this change and update consumers accordingly.'}\n\n`;
-            });
-            body += '</details>\n\n';
-          }
-
-          // Additive changes
-          const safeChanges = allChanges.filter(c => !c.is_breaking);
-          if (safeChanges.length > 0) {
-            body += `<details>\n<summary>✅ New additions (${safeChanges.length})</summary>\n\n`;
-            safeChanges.forEach(c => body += `- \`${c.path || ''}\` — ${c.message}\n`);
-            body += '\n</details>\n\n';
-          }
-
-          // Footer with CTA
-          body += '---\n';
-          if (bc > 0) {
-            body += `> Run locally: \`npx delimit-cli lint ${context.payload.pull_request?.head?.repo?.full_name ? '' : 'api/openapi.yaml'}\`\n\n`;
-          }
-          body += '*[Delimit](https://github.com/delimit-ai/delimit) · [Install](https://github.com/marketplace/actions/delimit-api-governance) · One workspace for every AI coding assistant*';
+          // Footer
+          body += `---\n`;
+          body += `Powered by [Delimit](https://delimit.ai) \u{00B7} [Docs](https://delimit.ai/docs) \u{00B7} [Install](https://github.com/marketplace/actions/delimit-api-governance)`;
 
           // Find existing comment to update
           const { data: comments } = await github.rest.issues.listComments({
