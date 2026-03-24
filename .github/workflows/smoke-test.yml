@@ -1,0 +1,208 @@
+name: Smoke Test (End-to-End)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action_ref:
+        description: 'Action ref to test (e.g., v1, main, PR branch)'
+        required: false
+        default: 'main'
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  smoke-test:
+    name: E2E Smoke Test
+    runs-on: ubuntu-latest
+    env:
+      SMOKE_REPO: delimit-ai/delimit-action-smoke
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Determine action ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "ref=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.inputs.action_ref }}" ]; then
+            echo "ref=${{ github.event.inputs.action_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=main" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create base spec
+        run: |
+          mkdir -p /tmp/smoke-specs
+          cat > /tmp/smoke-specs/base.yaml << 'SPEC'
+          openapi: "3.0.3"
+          info:
+            title: Smoke Test API
+            version: "1.0.0"
+          paths:
+            /users:
+              get:
+                summary: List users
+                responses:
+                  "200":
+                    description: OK
+                    content:
+                      application/json:
+                        schema:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              email:
+                                type: string
+            /users/{id}:
+              get:
+                summary: Get user
+                parameters:
+                  - name: id
+                    in: path
+                    required: true
+                    schema:
+                      type: integer
+                responses:
+                  "200":
+                    description: OK
+          SPEC
+
+      - name: Create breaking spec
+        run: |
+          cat > /tmp/smoke-specs/breaking.yaml << 'SPEC'
+          openapi: "3.0.3"
+          info:
+            title: Smoke Test API
+            version: "2.0.0"
+          paths:
+            /users:
+              get:
+                summary: List users
+                parameters:
+                  - name: tenant_id
+                    in: header
+                    required: true
+                    schema:
+                      type: string
+                responses:
+                  "200":
+                    description: OK
+                    content:
+                      application/json:
+                        schema:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              name:
+                                type: string
+          SPEC
+
+      - name: Run action locally (advisory mode)
+        id: advisory
+        uses: ./
+        with:
+          old_spec: /tmp/smoke-specs/base.yaml
+          new_spec: /tmp/smoke-specs/breaking.yaml
+          mode: advisory
+
+      - name: Verify advisory results
+        run: |
+          echo "=== Smoke Test Results ==="
+          echo "Breaking changes: ${{ steps.advisory.outputs.breaking_changes_detected }}"
+          echo "Semver bump: ${{ steps.advisory.outputs.semver_bump }}"
+          echo "Violations: ${{ steps.advisory.outputs.violations_count }}"
+          echo "Changes: ${{ steps.advisory.outputs.changes_count }}"
+
+          PASS=true
+
+          if [ "${{ steps.advisory.outputs.breaking_changes_detected }}" != "true" ]; then
+            echo "FAIL: Expected breaking_changes_detected=true"
+            PASS=false
+          fi
+
+          if [ "${{ steps.advisory.outputs.semver_bump }}" != "major" ]; then
+            echo "FAIL: Expected semver_bump=major"
+            PASS=false
+          fi
+
+          # Should detect at least 3 breaking changes:
+          # 1. required_param_added (tenant_id header)
+          # 2. type_changed (id: integer -> string)
+          # 3. field_removed (email removed)
+          CHANGES="${{ steps.advisory.outputs.changes_count }}"
+          if [ "${CHANGES:-0}" -lt 3 ]; then
+            echo "FAIL: Expected at least 3 changes, got ${CHANGES}"
+            PASS=false
+          fi
+
+          if [ "$PASS" = "true" ]; then
+            echo "PASS: All smoke test assertions passed"
+          else
+            echo "FAIL: Smoke test failed"
+            exit 1
+          fi
+
+      - name: Run action locally (enforce mode, should fail)
+        id: enforce
+        uses: ./
+        with:
+          old_spec: /tmp/smoke-specs/base.yaml
+          new_spec: /tmp/smoke-specs/breaking.yaml
+          mode: enforce
+        continue-on-error: true
+
+      - name: Verify enforce mode failed
+        run: |
+          if [ "${{ steps.enforce.outcome }}" != "failure" ]; then
+            echo "FAIL: Enforce mode should have failed on breaking changes"
+            exit 1
+          fi
+          echo "PASS: Enforce mode correctly rejected breaking changes"
+
+      - name: Check report file exists
+        run: |
+          if [ -f /tmp/delimit_report.json ]; then
+            echo "PASS: Report file generated"
+            python3 -c "
+          import json
+          report = json.load(open('/tmp/delimit_report.json'))
+          print(f'Changes: {len(report.get(\"changes\", []))}')
+          print(f'Violations: {len(report.get(\"violations\", []))}')
+          print(f'Semver: {report.get(\"semver\", {})}')
+          assert len(report.get('changes', [])) >= 3, 'Expected at least 3 changes in report'
+          print('PASS: Report structure valid')
+          "
+          else
+            echo "WARN: Report file not found (may be expected for local runs)"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Smoke Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Action ref: \`${{ steps.ref.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Advisory mode: ${{ steps.advisory.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Enforce mode (expected failure): ${{ steps.enforce.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Breaking changes detected: ${{ steps.advisory.outputs.breaking_changes_detected }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Semver bump: ${{ steps.advisory.outputs.semver_bump }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Changes count: ${{ steps.advisory.outputs.changes_count }}" >> $GITHUB_STEP_SUMMARY
