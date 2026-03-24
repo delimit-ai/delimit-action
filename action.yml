@@ -68,6 +68,26 @@ runs:
         OLD="${{ inputs.old_spec }}"
         NEW="${{ inputs.new_spec }}"
 
+        # Auto-detect spec if none provided
+        if [ -z "$SPEC" ] && [ -z "$OLD" ] && [ -z "$NEW" ]; then
+          echo "No spec path provided — auto-detecting..."
+          for pattern in openapi.yaml openapi.yml openapi.json swagger.yaml swagger.yml swagger.json \
+                         api/openapi.yaml api/openapi.yml api/openapi.json \
+                         docs/openapi.yaml docs/openapi.yml docs/openapi.json \
+                         spec/openapi.yaml spec/openapi.json specs/openapi.yaml; do
+            if [ -f "$pattern" ]; then
+              SPEC="$pattern"
+              echo "Auto-detected spec: $SPEC"
+              break
+            fi
+          done
+          if [ -z "$SPEC" ]; then
+            echo "::notice::No OpenAPI spec found. Add 'spec: path/to/your/openapi.yaml' to the action inputs."
+            echo "resolved_old=" >> "$GITHUB_OUTPUT"
+            echo "resolved_new=" >> "$GITHUB_OUTPUT"
+          fi
+        fi
+
         if [ -n "$SPEC" ] && [ -z "$OLD" ] && [ -z "$NEW" ]; then
           # Simple mode: auto-fetch base branch version
           if [ -z "${{ github.event.pull_request.base.sha }}" ]; then
