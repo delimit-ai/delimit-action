@@ -209,6 +209,9 @@ class CIFormatter:
             "[Install](https://github.com/marketplace/actions/delimit-api-governance)"
         )
 
+        if bc == 0:
+            lines.append("\nKeep Building.")
+
         return "\n".join(lines)
     
     def _format_github_annotations(self, result: Dict[str, Any]) -> str:
