@@ -1,5 +1,18 @@
 name: 'Delimit API Governance'
-description: 'Catch breaking API changes before merge. Semver classification, migration guides, and policy enforcement for OpenAPI specs.'
+description: |
+  Detect 27 types of breaking API changes on every pull request.
+
+  Delimit diffs your OpenAPI spec against the base branch and posts a PR comment with:
+  - Breaking vs non-breaking change classification
+  - Severity badges (critical, warning, info)
+  - Semver impact (MAJOR/MINOR/PATCH)
+  - Migration guides for each breaking change
+  - Slack/Discord webhook notifications
+
+  Advisory mode by default — never fails your build until you're ready.
+
+  Works with OpenAPI 3.0 and 3.1 specs (YAML or JSON).
+  No API keys or external services required.
 author: 'Delimit AI'
 branding:
   icon: 'shield'

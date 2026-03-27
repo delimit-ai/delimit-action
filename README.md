@@ -8,6 +8,12 @@
 
 Delimit runs on every pull request, compares your OpenAPI spec against the base branch, and posts a detailed comment with breaking changes, semver classification, policy violations, and migration guidance. No API keys, no external services, no config required to get started.
 
+## What it looks like
+
+<p align="center">
+  <img src="docs/pr-comment.png" alt="Delimit PR comment showing breaking changes" width="700">
+</p>
+
 ---
 
 ## Features
