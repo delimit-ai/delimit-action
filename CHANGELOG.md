@@ -2,6 +2,16 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.7.0] - 2026-03-26
+
+### Features
+- "Keep Building." displayed on governance pass (0 breaking changes)
+- Auto-detect OpenAPI spec when no path provided (scans common locations)
+- 27 change types (expanded from 23): 17 breaking, 10 non-breaking
+- Severity badges in PR comments (Critical, High, Medium)
+- Claude Code Action workflow included in examples
+- E2E smoke test workflow for action validation
+
 ## [1.3.0] - 2026-03-15
 
 ### Testing
