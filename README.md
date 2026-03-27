@@ -4,6 +4,7 @@
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-api-governance)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![API Governance](https://delimit-ai.github.io/badge/pass.svg)](https://github.com/marketplace/actions/delimit-api-governance)
 
 Delimit runs on every pull request, compares your OpenAPI spec against the base branch, and posts a detailed comment with breaking changes, semver classification, policy violations, and migration guidance. No API keys, no external services, no config required to get started.
 
