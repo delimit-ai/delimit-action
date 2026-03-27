@@ -30,6 +30,10 @@ inputs:
     description: 'Path to custom policy file (.delimit/policies.yml)'
     required: false
     default: ''
+  webhook_url:
+    description: 'Slack or Discord webhook URL for breaking change notifications'
+    required: false
+    default: ''
 
 outputs:
   breaking_changes_detected:
@@ -357,6 +361,58 @@ runs:
               body,
             });
           }
+
+    - name: Send webhook notification
+      if: always() && steps.validate.outputs.breaking_changes == 'true' && inputs.webhook_url != ''
+      run: |
+        python3 << 'WEBHOOK_EOF'
+        import json, sys, os
+
+        sys.path.insert(0, "${{ github.action_path }}")
+        from core.webhook import send_webhook
+
+        # Load report for change counts
+        try:
+            with open("/tmp/delimit_report.json") as f:
+                report = json.load(f)
+        except Exception:
+            print("::warning::No report file found, skipping webhook notification")
+            sys.exit(0)
+
+        summary = report.get("summary", {})
+        semver = report.get("semver", {})
+        breaking_count = summary.get("breaking_changes", 0)
+        total = summary.get("total_changes", 0)
+        additive_count = total - breaking_count
+        bump = (semver.get("bump", "none")).upper()
+
+        # Build repo and PR info from GitHub context
+        repo = os.environ.get("GITHUB_REPOSITORY", "unknown/unknown")
+        event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+        pr_number = 0
+        pr_title = ""
+        pr_url = ""
+
+        if event_path:
+            try:
+                with open(event_path) as f:
+                    event = json.load(f)
+                pr = event.get("pull_request", {})
+                pr_number = pr.get("number", 0)
+                pr_title = pr.get("title", "")
+                pr_url = pr.get("html_url", "")
+            except Exception:
+                pass
+
+        if not pr_url and pr_number:
+            pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+
+        url = "${{ inputs.webhook_url }}"
+        ok = send_webhook(url, repo, pr_number, pr_title, breaking_count, additive_count, bump, pr_url)
+        if ok:
+            print("Delimit webhook notification sent successfully")
+        WEBHOOK_EOF
+      shell: bash
 
     - name: Enforce breaking change policy
       if: inputs.mode == 'enforce' && steps.validate.outputs.breaking_changes == 'true'

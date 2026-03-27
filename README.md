@@ -263,6 +263,57 @@ Delimit ships with 6 built-in rules that are always active unless you set `overr
 
 ---
 
+## Slack / Discord Notifications
+
+Get notified in Slack or Discord when breaking API changes are detected. Add a `webhook_url` input pointing to your channel's incoming webhook:
+
+```yaml
+- uses: delimit-ai/delimit-action@v1
+  with:
+    spec: api/openapi.yaml
+    webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+The notification fires only when breaking changes are found. If the webhook URL is not set, this step is silently skipped.
+
+### Supported platforms
+
+| Platform | URL pattern | Payload format |
+|----------|------------|----------------|
+| **Slack** | `hooks.slack.com` | Block Kit with mrkdwn |
+| **Discord** | `discord.com/api/webhooks` | Rich embed with color and fields |
+| **Generic** | Anything else | Plain JSON event payload |
+
+Delimit auto-detects the platform from the URL and formats the message accordingly. Webhook failures are logged as warnings but never fail your CI run.
+
+### Discord example
+
+```yaml
+- uses: delimit-ai/delimit-action@v1
+  with:
+    spec: api/openapi.yaml
+    webhook_url: ${{ secrets.DISCORD_WEBHOOK }}
+```
+
+### Generic webhook
+
+Any URL that is not Slack or Discord receives a JSON payload:
+
+```json
+{
+  "event": "breaking_changes_detected",
+  "repo": "org/repo",
+  "pr_number": 123,
+  "pr_title": "Update user endpoints",
+  "breaking_changes": 3,
+  "additive_changes": 1,
+  "semver": "MAJOR",
+  "pr_url": "https://github.com/org/repo/pull/123"
+}
+```
+
+---
+
 ## Advisory vs Enforce Mode
 
 | Behavior | `advisory` (default) | `enforce` |
