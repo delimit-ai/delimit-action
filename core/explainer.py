@@ -257,6 +257,12 @@ def _render_changelog(ctx: Dict) -> str:
 
 
 def _render_pr_comment(ctx: Dict) -> str:
+    """Render a PR comment following the catch + teach + invite pattern.
+
+    - Catch: surface the breaking change with severity
+    - Teach: explain WHY it breaks existing consumers
+    - Invite: show how to run locally + CTA
+    """
     lines: List[str] = []
     bump = ctx["bump"]
     bc = ctx["counts"]["breaking"]
@@ -264,18 +270,16 @@ def _render_pr_comment(ctx: Dict) -> str:
     additive_count = ctx["counts"]["additive"]
 
     if bc == 0:
-        # ── GREEN PATH ──
+        # ── GREEN PATH: Governance Passed ──
         semver_label = bump.upper() if bump != "none" else "NONE"
-        lines.append("## \U0001f6e1\ufe0f Governance Passed")
+        lines.append("## \u2705 Governance Passed")
         lines.append("")
+        lines.append("> **No breaking API changes detected.** This PR is safe for existing consumers.")
         if total > 0:
             lines.append(
-                f"> **No breaking API changes detected.** "
-                f"{additive_count} additive change{'s' if additive_count != 1 else ''} "
+                f"> {additive_count} additive change{'s' if additive_count != 1 else ''} "
                 f"found \u2014 Semver: **{semver_label}**"
             )
-        else:
-            lines.append("> **No breaking API changes detected.**")
         lines.append("")
 
         # Additive changes (collapsed)
@@ -290,39 +294,33 @@ def _render_pr_comment(ctx: Dict) -> str:
             lines.append("</details>")
             lines.append("")
     else:
-        # ── RED PATH ──
-        lines.append("## \U0001f6e1\ufe0f Breaking API Changes Detected")
+        # ── RED PATH: Governance Failed ──
+        lines.append("## \u274c Governance Failed")
         lines.append("")
 
         # Summary card
-        parts = [f"\U0001f534 **{bc} breaking change{'s' if bc != 1 else ''}**"]
+        parts = [f"**{bc} breaking change{'s' if bc != 1 else ''}** detected"]
         parts.append("Semver: **MAJOR**")
         separator = " \u00b7 "
         lines.append(f"> {separator.join(parts)}")
         lines.append("")
 
-        # Stats table
-        lines.append("| | Count |")
-        lines.append("|---|---|")
-        lines.append(f"| Total changes | {total} |")
-        lines.append(f"| Breaking | {bc} |")
-        lines.append(f"| Additive | {additive_count} |")
-        lines.append("")
-
-        # Breaking changes table
+        # Breaking changes: catch + teach for each
         lines.append("### Breaking Changes")
         lines.append("")
-        lines.append("| Severity | Change | Location |")
-        lines.append("|----------|--------|----------|")
         for c in ctx["breaking_changes"]:
             change_type = c.get("type", "breaking")
             severity = _pr_severity(change_type)
-            lines.append(f"| {severity} | {c['message']} | `{c['path']}` |")
-        lines.append("")
+            lines.append(f"{severity} \u2014 `{c['path']}`")
+            lines.append(c["message"])
+            teaching = _pr_teaching(change_type)
+            if teaching:
+                lines.append(f"> **Why this breaks:** {teaching}")
+            lines.append("")
 
-        # Migration guidance
+        # Migration guidance (collapsed)
         lines.append("<details>")
-        lines.append("<summary>\U0001f4cb Migration guide</summary>")
+        lines.append("<summary>\U0001f4cb How to fix</summary>")
         lines.append("")
         for i, c in enumerate(ctx["breaking_changes"], 1):
             lines.append(f"**{i}. `{c['path']}`**")
@@ -335,7 +333,7 @@ def _render_pr_comment(ctx: Dict) -> str:
         additive = ctx["additive_changes"]
         if additive:
             lines.append("<details>")
-            lines.append(f"<summary>\u2705 New additions ({len(additive)})</summary>")
+            lines.append(f"<summary>\u2705 Non-breaking additions ({len(additive)})</summary>")
             lines.append("")
             for c in additive:
                 lines.append(f"- `{c['path']}` \u2014 {c['message']}")
@@ -343,14 +341,18 @@ def _render_pr_comment(ctx: Dict) -> str:
             lines.append("</details>")
             lines.append("")
 
-        lines.append("> **Fix locally:** `npx delimit-cli lint`")
-        lines.append("")
-
+    # Reproduce locally (always shown)
     lines.append("---")
+    lines.append("**Run locally:**")
+    lines.append("```")
+    lines.append("npx delimit-cli lint path/to/openapi.yaml")
+    lines.append("```")
+    lines.append("")
+
+    # Footer
     lines.append(
-        "Powered by [Delimit](https://delimit.ai) \u00b7 "
-        "[Docs](https://delimit.ai/docs) \u00b7 "
-        "[Install](https://github.com/marketplace/actions/delimit-api-governance)"
+        "Powered by [Delimit](https://github.com/delimit-ai/delimit-action) \u2014 "
+        "API governance for every PR"
     )
     return "\n".join(lines)
 
@@ -364,6 +366,19 @@ def _pr_severity(change_type: str) -> str:
     if change_type in high:
         return "🟠 High"
     return "🟡 Medium"
+
+
+def _pr_teaching(change_type: str) -> Optional[str]:
+    """Explain WHY a breaking change type matters to existing consumers."""
+    teachings = {
+        "endpoint_removed": "Removing an endpoint is a breaking change because existing clients are actively calling it. Their requests will start returning 404 errors.",
+        "method_removed": "Removing an HTTP method breaks any client using that verb on this path. Existing integrations will receive 405 Method Not Allowed.",
+        "required_param_added": "Adding a required parameter breaks every existing request that does not include it. Existing clients will start getting 400 Bad Request.",
+        "field_removed": "Removing a field breaks any client that reads or sends it. Their code will encounter undefined/null where it expects a value.",
+        "type_changed": "Changing a field type breaks serialization. Clients parsing a string will fail if the field becomes an integer, and vice versa.",
+        "enum_value_removed": "Removing an enum value breaks clients that send or compare against it. Their validation or switch/case logic will fail.",
+    }
+    return teachings.get(change_type)
 
 
 def _pr_migration_hint(change: Dict) -> str:
