@@ -312,11 +312,18 @@ class TestExplainerTemplates(unittest.TestCase):
         self.assertIn("Step 1", output)
         self.assertIn("Migration Guide", output)
 
-    def test_pr_comment_has_table(self):
+    def test_pr_comment_has_catch_teach_invite(self):
         output = explain(self.breaking_changes, template="pr_comment")
-        self.assertIn("| Severity | Change | Location |", output)
+        # Catch: breaking changes listed with severity
+        self.assertIn("Governance Failed", output)
         self.assertIn("MAJOR", output)
-        self.assertIn("Migration guide", output)
+        self.assertIn("Breaking Changes", output)
+        # Teach: explains WHY it breaks
+        self.assertIn("Why this breaks:", output)
+        # Invite: local run instructions + CTA
+        self.assertIn("npx delimit-cli lint", output)
+        self.assertIn("How to fix", output)
+        self.assertIn("API governance for every PR", output)
 
     def test_slack_has_icon(self):
         output = explain(self.breaking_changes, template="slack")
@@ -344,11 +351,17 @@ class TestCIFormatterMarkdown(unittest.TestCase):
         self.assertIn("Delimit", output)
         self.assertIn("Breaking", output)
 
-    def test_markdown_breaking_has_table(self):
+    def test_markdown_breaking_has_catch_teach_invite(self):
         formatter = CIFormatter(OutputFormat.MARKDOWN)
         output = formatter.format_result(self.result_breaking)
-        self.assertIn("| | Count |", output)
-        self.assertIn("Total changes", output)
+        # Catch: governance status + breaking changes section
+        self.assertIn("Governance Failed", output)
+        self.assertIn("Breaking Changes", output)
+        # Teach: explains why it breaks
+        self.assertIn("Why this breaks:", output)
+        # Invite: local run + CTA footer
+        self.assertIn("npx delimit-cli lint", output)
+        self.assertIn("API governance for every PR", output)
 
     def test_markdown_breaking_has_violations(self):
         formatter = CIFormatter(OutputFormat.MARKDOWN)

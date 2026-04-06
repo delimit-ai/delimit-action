@@ -243,18 +243,33 @@ runs:
             return { icon: '\u{1F7E1}', label: 'Medium' };
           };
 
+          // Teaching: explain WHY each rule matters to existing consumers
+          const teachingOf = (rule) => {
+            const teachings = {
+              no_endpoint_removal: 'Removing an endpoint is a breaking change because existing clients are actively calling it. Their requests will start returning 404 errors.',
+              no_method_removal: 'Removing an HTTP method breaks any client using that verb on this path. Existing integrations will receive 405 Method Not Allowed.',
+              no_required_param_addition: 'Adding a required parameter breaks every existing request that does not include it. Existing clients will start getting 400 Bad Request.',
+              no_field_removal: 'Removing a request field breaks clients that are sending it if the server now rejects the payload, or silently drops data they expect to persist.',
+              no_response_field_removal: 'Removing a response field breaks any client that reads it. Their code will encounter undefined/null where it expects a value.',
+              no_type_changes: 'Changing a field type breaks serialization. Clients parsing a string will fail if the field becomes an integer, and vice versa.',
+              warn_type_change: 'Changing a field type breaks serialization. Clients parsing the old type will fail to deserialize the new one.',
+              no_enum_removal: 'Removing an enum value breaks clients that send or compare against it. Their validation or switch/case logic will fail.',
+            };
+            return teachings[rule] || null;
+          };
+
           const errors = violations.filter(v => v.severity === 'error');
           const warnings = violations.filter(v => v.severity === 'warning');
 
           let body = '';
 
           if (bc === 0) {
-            // ── GREEN PATH: no breaking changes ──
+            // ── GREEN PATH: Governance Passed ──
             const semverLabel = bump === 'minor' ? 'MINOR' : bump === 'patch' ? 'PATCH' : 'NONE';
-            body += `## \u{1F6E1}\u{FE0F} Governance Passed\n\n`;
-            body += `> **No breaking API changes detected.**`;
+            body += `## \u{2705} Governance Passed\n\n`;
+            body += `> **No breaking API changes detected.** This PR is safe for existing consumers.`;
             if (total > 0) {
-              body += ` ${additive} additive change${additive !== 1 ? 's' : ''} found \u{2014} Semver: **${semverLabel}**`;
+              body += `\n> ${additive} additive change${additive !== 1 ? 's' : ''} found \u{2014} Semver: **${semverLabel}**`;
             }
             body += `\n\n`;
 
@@ -266,65 +281,56 @@ runs:
               body += `\n</details>\n\n`;
             }
           } else {
-            // ── RED PATH: breaking changes detected ──
-            body += `## \u{1F6E1}\u{FE0F} Breaking API Changes Detected\n\n`;
+            // ── RED PATH: Governance Failed ──
+            body += `## \u{274C} Governance Failed\n\n`;
 
             // Summary card
             const parts = [];
-            parts.push(`\u{1F534} **${bc} breaking change${bc !== 1 ? 's' : ''}**`);
+            parts.push(`**${bc} breaking change${bc !== 1 ? 's' : ''}** detected`);
             parts.push(`Semver: **MAJOR**`);
             if (semver.next_version) parts.push(`Next: \`${semver.next_version}\``);
-            if (mode === 'enforce') parts.push(`\u{1F6A8} **CI blocked**`);
+            if (mode === 'enforce') parts.push(`**CI blocked**`);
             body += `> ${parts.join(' \u{00B7} ')}\n\n`;
 
-            // Stats
-            body += `| | Count |\n`;
-            body += `|---|---|\n`;
-            body += `| Total changes | ${total} |\n`;
-            body += `| Breaking | ${bc} |\n`;
-            body += `| Additive | ${additive} |\n`;
-            if (warnings.length > 0) body += `| Warnings | ${warnings.length} |\n`;
-            body += `\n`;
-
-            // Breaking changes table
+            // Breaking changes: catch + teach for each
             if (errors.length || warnings.length) {
               body += `### Breaking Changes\n\n`;
-              body += `| Severity | Change | Location |\n`;
-              body += `|----------|--------|----------|\n`;
-              errors.forEach(v => {
+              errors.forEach((v, i) => {
                 const s = severityOf(v.rule);
-                body += `| ${s.icon} ${s.label} | ${v.message} | \`${v.path}\` |\n`;
+                body += `${s.icon} **${s.label}** \u{2014} \`${v.path}\`\n`;
+                body += `${v.message}\n`;
+                const teaching = teachingOf(v.rule);
+                if (teaching) {
+                  body += `> **Why this breaks:** ${teaching}\n`;
+                }
+                body += `\n`;
               });
               warnings.forEach(v => {
-                body += `| \u{1F7E1} Warning | ${v.message} | \`${v.path}\` |\n`;
+                body += `\u{1F7E1} **Warning** \u{2014} \`${v.path}\`\n`;
+                body += `${v.message}\n`;
+                const teaching = teachingOf(v.rule);
+                if (teaching) {
+                  body += `> **Why this breaks:** ${teaching}\n`;
+                }
+                body += `\n`;
               });
-              body += `\n`;
             }
 
-            // Policy violations (separate section when there are warnings alongside errors)
-            if (warnings.length > 0 && errors.length > 0) {
-              body += `<details>\n<summary>\u{26A0}\u{FE0F} Policy warnings (${warnings.length})</summary>\n\n`;
-              warnings.forEach(v => {
-                body += `- \u{1F7E1} \`${v.path}\` \u{2014} ${v.message}\n`;
-              });
-              body += `\n</details>\n\n`;
-            }
-
-            // Migration guide
+            // Migration guide (collapsed)
             if (migration && decision === 'fail') {
               body += `<details>\n<summary>\u{1F4CB} Migration guide</summary>\n\n`;
               body += migration + '\n\n</details>\n\n';
             } else if (errors.length > 0) {
-              body += `<details>\n<summary>\u{1F4CB} Migration guide</summary>\n\n`;
+              body += `<details>\n<summary>\u{1F4CB} How to fix</summary>\n\n`;
               const hints = {
-                no_endpoint_removal: 'Consumers must stop calling this endpoint. Consider a deprecation period before removal.',
-                no_method_removal: 'Consumers using this HTTP method must migrate to an alternative method.',
-                no_required_param_addition: 'All existing consumers must include this parameter. Consider making it optional with a default value.',
-                no_field_removal: 'Consumers reading this field will break. Add it back or provide a migration path.',
-                no_response_field_removal: 'Consumers reading this field will break. Add it back or provide a migration path.',
-                no_type_changes: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
-                warn_type_change: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
-                no_enum_removal: 'Consumers using this value must update. Consider keeping it as deprecated.',
+                no_endpoint_removal: 'Deprecate the endpoint first, then remove it in a future major version. This gives consumers time to migrate.',
+                no_method_removal: 'Keep the old method available or redirect it. Remove only after a deprecation period.',
+                no_required_param_addition: 'Make the new parameter optional with a sensible default value. This keeps existing requests working.',
+                no_field_removal: 'Keep the field in the schema. If it is no longer needed, mark it deprecated and stop populating it in a future version.',
+                no_response_field_removal: 'Restore the field in the response. If removing it is intentional, version the endpoint (e.g., /v2/) so existing consumers are unaffected.',
+                no_type_changes: 'Revert the type change, or introduce a new field with the desired type and deprecate the old one.',
+                warn_type_change: 'Revert the type change, or introduce a new field with the desired type and deprecate the old one.',
+                no_enum_removal: 'Keep the enum value and mark it deprecated. Remove it only in a coordinated major release.',
               };
               errors.forEach((v, i) => {
                 body += `**${i + 1}. \`${v.path}\`**\n`;
@@ -336,44 +342,40 @@ runs:
             // Additive changes (collapsed)
             const safeChanges = allChanges.filter(c => !c.is_breaking);
             if (safeChanges.length > 0) {
-              body += `<details>\n<summary>\u{2705} New additions (${safeChanges.length})</summary>\n\n`;
+              body += `<details>\n<summary>\u{2705} Non-breaking additions (${safeChanges.length})</summary>\n\n`;
               safeChanges.forEach(c => body += `- \`${c.path || ''}\` \u{2014} ${c.message}\n`);
               body += `\n</details>\n\n`;
             }
-
-            // Local run hint
-            body += `> **Fix locally:** \`npx delimit-cli lint\`\n\n`;
           }
 
-          // Governance Gates (LED-259: PR-native governance copilot)
+          // Governance Gates
           body += `### Governance Gates\n\n`;
-          body += `| Gate | Status | Chain |\n`;
-          body += `|------|--------|-------|\n`;
+          body += `| Gate | Status |\n`;
+          body += `|------|--------|\n`;
 
           const lintPass = bc === 0;
           const policyPass = violations.length === 0;
-          const securityPass = true; // No vulns detected in spec diff
           const deployReady = lintPass && policyPass;
 
-          body += `| API Lint | ${lintPass ? '\u{2705} Pass' : '\u{274C} Fail'} | lint \u{2192} semver \u{2192} gov_evaluate |\n`;
-          body += `| Policy Compliance | ${policyPass ? '\u{2705} Pass' : '\u{274C} ' + violations.length + ' violation(s)'} | policy \u{2192} evidence_collect |\n`;
-          body += `| Security Audit | \u{2705} Pass | security_audit \u{2192} evidence_collect |\n`;
-          body += `| Deploy Readiness | ${deployReady ? '\u{2705} Ready' : '\u{26D4} Blocked'} | deploy_plan \u{2192} security_audit |\n`;
+          body += `| API Lint | ${lintPass ? '\u{2705} Pass' : '\u{274C} Fail'} |\n`;
+          body += `| Policy Compliance | ${policyPass ? '\u{2705} Pass' : '\u{274C} ' + violations.length + ' violation(s)'} |\n`;
+          body += `| Security Audit | \u{2705} Pass |\n`;
+          body += `| Deploy Readiness | ${deployReady ? '\u{2705} Ready' : '\u{26D4} Blocked'} |\n`;
           body += `\n`;
 
-          // Enforcement chain visualization
           if (!deployReady) {
-            body += `> \u{1F6E1}\u{FE0F} **Enforcement chain:** lint \u{2192} semver \u{2192} security_audit \u{2192} gov_evaluate \u{2192} evidence_collect \u{2192} ledger\n`;
             body += `> Deploy blocked until all gates pass.`;
             if (mode === 'advisory') body += ` *(advisory mode \u{2014} CI will not fail)*`;
             body += `\n\n`;
-          } else {
-            body += `> \u{2705} All governance gates passing. Safe to merge.\n\n`;
           }
 
-          // Footer
+          // Reproduce locally (always shown)
           body += `---\n`;
-          body += `Powered by [Delimit](https://delimit.ai) \u{00B7} [Docs](https://delimit.ai/docs) \u{00B7} [Install](https://github.com/marketplace/actions/delimit-api-governance)`;
+          body += `**Run locally:**\n`;
+          body += `\`\`\`\nnpx delimit-cli lint path/to/openapi.yaml\n\`\`\`\n\n`;
+
+          // Footer
+          body += `Powered by [Delimit](https://github.com/delimit-ai/delimit-action) \u{2014} API governance for every PR`;
 
           // Find existing comment to update
           const { data: comments } = await github.rest.issues.listComments({
