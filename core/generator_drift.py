@@ -98,12 +98,42 @@ def detect_drift(
             error=f"Failed to read committed artifact: {e}",
         )
 
+    # Parse the command safely — shell=False to avoid command injection.
+    # Users needing shell features (&&, |, env vars, etc.) should point
+    # generator_command at a script file instead of an inline chain.
+    try:
+        argv = shlex.split(regen_command)
+    except ValueError as e:
+        return DriftResult(
+            drifted=False,
+            artifact_path=artifact_path,
+            regen_command=regen_command,
+            error=f"Could not parse generator_command: {e}",
+        )
+    if not argv:
+        return DriftResult(
+            drifted=False,
+            artifact_path=artifact_path,
+            regen_command=regen_command,
+            error="generator_command is empty",
+        )
+    # Reject obvious shell metacharacters — force users to use a script
+    # file if they need chaining or redirection.
+    SHELL_META = set("&|;><`$")
+    if any(ch in token for token in argv for ch in SHELL_META):
+        return DriftResult(
+            drifted=False,
+            artifact_path=artifact_path,
+            regen_command=regen_command,
+            error="generator_command contains shell metacharacters (&|;><`$). Point it at a script file instead of chaining inline.",
+        )
+
     # Run the regenerator
     start = time.time()
     try:
         result = subprocess.run(
-            regen_command,
-            shell=True,
+            argv,
+            shell=False,
             cwd=str(repo_root_p),
             capture_output=True,
             text=True,
@@ -115,6 +145,14 @@ def detect_drift(
             artifact_path=artifact_path,
             regen_command=regen_command,
             error=f"Generator timed out after {timeout_seconds}s",
+            runtime_seconds=time.time() - start,
+        )
+    except FileNotFoundError as e:
+        return DriftResult(
+            drifted=False,
+            artifact_path=artifact_path,
+            regen_command=regen_command,
+            error=f"Generator executable not found: {e}",
             runtime_seconds=time.time() - start,
         )
 
