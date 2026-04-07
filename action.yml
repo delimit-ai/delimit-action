@@ -310,8 +310,20 @@ runs:
               body += `No changes detected in \`${report.api_name || 'schema'}\`. Generator output matches committed artifact.\n\n`;
             } else {
               body += `### Delimit governance — JSON Schema\n\n`;
-              body += `**${report.api_name || 'Schema'}** — ${total} change(s), ${bc} breaking\n`;
-              body += `Recommended semver bump: **${bump}**\n\n`;
+              // Split the header so the committed-diff count and the drift
+              // count are visibly distinct signals, not joined into one
+              // contradictory line. Suppress the schema-classification line
+              // entirely when there are no committed changes.
+              const driftBreaking = (drift && drift.drifted)
+                ? drift.changes.filter(c => c.is_breaking).length
+                : 0;
+              if (schemaChanges.length > 0) {
+                body += `**${report.api_name || 'Schema'}** — committed schema diff: ${schemaChanges.length} change(s), ${breaking.length} breaking  \n`;
+                body += `Recommended semver bump: **${bump}**\n\n`;
+              }
+              if (drift && drift.drifted) {
+                body += `**Generator drift:** ${drift.change_count} change(s), ${driftBreaking} breaking\n\n`;
+              }
 
               if (schemaChanges.length > 0) {
                 body += `#### Schema classification\n\n`;
