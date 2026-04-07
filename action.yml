@@ -36,6 +36,18 @@ inputs:
     description: 'Mode: advisory (comments only) or enforce (fail CI on breaking changes)'
     required: false
     default: 'advisory'
+  fail_on_breaking:
+    description: 'Boolean alias for mode=enforce. When true, fails CI on breaking changes regardless of mode. Default false (advisory).'
+    required: false
+    default: 'false'
+  generator_command:
+    description: 'Optional shell command that regenerates a generated artifact (e.g. "pnpm run schema:export"). When set, Delimit runs this command in a sandbox and diffs the regenerated output against the committed artifact to detect drift between source-of-truth and committed file. Pair with generator_artifact.'
+    required: false
+    default: ''
+  generator_artifact:
+    description: 'Path to the generated artifact that generator_command produces (e.g. "schemas/v1/agent.schema.json"). Required when generator_command is set.'
+    required: false
+    default: ''
   github_token:
     description: 'GitHub token for PR comments'
     required: false
@@ -144,6 +156,9 @@ runs:
 
         from core.diff_engine_v2 import OpenAPIDiffEngine
         from core.policy_engine import evaluate_with_policy
+        from core.spec_detector import detect_spec_type
+        from core.json_schema_diff import JSONSchemaDiffEngine
+        from core.generator_drift import detect_drift, format_drift_report
 
         old_path = "${{ steps.resolve.outputs.resolved_old }}"
         new_path = "${{ steps.resolve.outputs.resolved_new }}"
@@ -170,17 +185,63 @@ runs:
         old_spec = load(old_path)
         new_spec = load(new_path)
 
+        spec_type = detect_spec_type(new_spec)
         policy = "${{ inputs.policy_file }}" or None
-        api_name = old_spec.get("info", {}).get("title", "API")
-        current_version = old_spec.get("info", {}).get("version")
 
-        result = evaluate_with_policy(
-            old_spec, new_spec,
-            policy_file=policy,
-            include_semver=True,
-            current_version=current_version,
-            api_name=api_name,
-        )
+        if spec_type == "json_schema":
+            # JSON Schema path (LED-713) — bypass OpenAPI policy engine,
+            # build a minimal report compatible with the comment step.
+            engine = JSONSchemaDiffEngine()
+            changes = engine.compare(old_spec, new_spec)
+            breaking_count = sum(1 for c in changes if c.is_breaking)
+            api_name = old_spec.get("title", "JSON Schema")
+            result = {
+                "summary": {
+                    "total_changes": len(changes),
+                    "breaking_changes": breaking_count,
+                    "violations": 0,
+                },
+                "changes": [
+                    {"type": c.type.value, "path": c.path, "message": c.message,
+                     "is_breaking": c.is_breaking}
+                    for c in changes
+                ],
+                "violations": [],
+                "semver": {
+                    "bump": "major" if breaking_count else ("minor" if changes else "none"),
+                    "next_version": "",
+                },
+                "spec_type": "json_schema",
+                "api_name": api_name,
+            }
+        else:
+            api_name = old_spec.get("info", {}).get("title", "API")
+            current_version = old_spec.get("info", {}).get("version")
+            result = evaluate_with_policy(
+                old_spec, new_spec,
+                policy_file=policy,
+                include_semver=True,
+                current_version=current_version,
+                api_name=api_name,
+            )
+
+        # Generator drift check (LED-713) — opt-in via generator_command + generator_artifact
+        gen_cmd = "${{ inputs.generator_command }}"
+        gen_artifact = "${{ inputs.generator_artifact }}"
+        if gen_cmd and gen_artifact:
+            drift = detect_drift(
+                repo_root=os.environ.get("GITHUB_WORKSPACE", "."),
+                artifact_path=gen_artifact,
+                regen_command=gen_cmd,
+                timeout_seconds=120,
+            )
+            result["drift"] = drift.to_dict()
+            # Drifted breaking changes count toward the breaking_changes flag
+            if drift.drifted:
+                drift_breaking = sum(1 for c in drift.changes if c.is_breaking)
+                result.setdefault("summary", {})["breaking_changes"] = (
+                    result.get("summary", {}).get("breaking_changes", 0) + drift_breaking
+                )
 
         semver = result.get("semver", {})
         breaking = result["summary"]["breaking_changes"] > 0
@@ -227,12 +288,87 @@ runs:
           const violations = report.violations || [];
           const allChanges = report.all_changes || [];
           const migration = report.migration || '';
+          const drift = report.drift || null;
+          const specType = report.spec_type || 'openapi';
 
           const bump = (semver.bump || 'none').toLowerCase();
           const bc = summary.breaking_changes || 0;
           const total = summary.total_changes || 0;
           const additive = total - bc;
           const mode = '${{ inputs.mode }}';
+
+          // JSON Schema spec type — minimal render covering drift + classification.
+          // The OpenAPI renderer below is kept unchanged for back-compat.
+          if (specType === 'json_schema') {
+            let body = '';
+            const schemaChanges = report.changes || [];
+            const breaking = schemaChanges.filter(c => c.is_breaking);
+            const nonBreaking = schemaChanges.filter(c => !c.is_breaking);
+
+            if (breaking.length === 0 && nonBreaking.length === 0 && (!drift || !drift.drifted)) {
+              body += `### Delimit governance — JSON Schema\n\n`;
+              body += `No changes detected in \`${report.api_name || 'schema'}\`. Generator output matches committed artifact.\n\n`;
+            } else {
+              body += `### Delimit governance — JSON Schema\n\n`;
+              body += `**${report.api_name || 'Schema'}** — ${total} change(s), ${bc} breaking\n`;
+              body += `Recommended semver bump: **${bump}**\n\n`;
+
+              if (schemaChanges.length > 0) {
+                body += `#### Schema classification\n\n`;
+                for (const c of schemaChanges) {
+                  const icon = c.is_breaking ? '\u{1F534}' : '\u{1F7E2}';
+                  const tag = c.is_breaking ? 'breaking' : 'ok';
+                  body += `- ${icon} \`${c.type}\` [${tag}] at \`${c.path}\` — ${c.message}\n`;
+                }
+                body += `\n`;
+              }
+
+              if (drift && drift.drifted) {
+                body += `#### Generator drift\n\n`;
+                body += `Artifact \`${drift.artifact_path}\` is **stale** vs \`${drift.regen_command}\` output (${drift.change_count} drift change(s), ${drift.runtime_seconds}s to regen).\n\n`;
+                body += `Re-run the generator and commit the result, or revert the source change.\n\n`;
+                for (const c of drift.changes) {
+                  const icon = c.is_breaking ? '\u{1F534}' : '\u{1F7E2}';
+                  body += `- ${icon} \`${c.type}\` at \`${c.path}\` — ${c.message}\n`;
+                }
+                body += `\n`;
+              } else if (drift && !drift.drifted && !drift.error) {
+                body += `#### Generator drift\n\nClean — committed \`${drift.artifact_path}\` matches generator output (${drift.runtime_seconds}s to regen).\n\n`;
+              } else if (drift && drift.error) {
+                body += `#### Generator drift\n\nSkipped — ${drift.error}\n\n`;
+              }
+
+              if (mode === 'advisory') {
+                body += `> Advisory mode — CI will not fail. Set \`fail_on_breaking: true\` or \`mode: enforce\` to block on breaking changes.\n\n`;
+              }
+            }
+
+            body += `---\n`;
+            body += `Powered by [Delimit](https://github.com/delimit-ai/delimit-action) — API governance for every PR`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes('Delimit'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+            return;
+          }
 
           // Severity mapping
           const severityOf = (rule) => {
@@ -455,8 +591,8 @@ runs:
       shell: bash
 
     - name: Enforce breaking change policy
-      if: inputs.mode == 'enforce' && steps.validate.outputs.breaking_changes == 'true'
+      if: (inputs.mode == 'enforce' || inputs.fail_on_breaking == 'true') && steps.validate.outputs.breaking_changes == 'true'
       run: |
-        echo "::error::Breaking API changes detected. CI blocked by Delimit enforce mode."
+        echo "::error::Breaking API changes detected. CI blocked by Delimit (mode=${{ inputs.mode }}, fail_on_breaking=${{ inputs.fail_on_breaking }})."
         exit 1
       shell: bash
