@@ -2,6 +2,24 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.9.0] - 2026-04-07
+
+### Features
+- **JSON Schema support** (LED-713) — first-class governance for bare JSON Schema files (Draft 4+, single-file, internal `$ref` resolution). Complements OpenAPI without changing the existing path. Routes via `core/spec_detector.detect_spec_type()`.
+- **Generator drift detection** — new `generator_command` + `generator_artifact` inputs. When set, the action runs the regen command in a sandbox and diffs the regenerated output against the committed artifact. Catches the case where source-of-truth (Zod, protobuf, OpenAPI generator, etc.) has changed but the committed generated file is stale. Workspace is cleanly restored after the check.
+- **`fail_on_breaking` input** — boolean alias for `mode=enforce`. When `true`, fails CI on breaking changes regardless of `mode`. Defaults to `false`.
+- **PR comment renderer** updated with a JSON Schema branch that shows drift report + classification table.
+
+### v1 JSON Schema change types
+Property add/remove, required add/remove, type widen/narrow, enum value add/remove, `const` change, `additionalProperties` flip, `pattern` tighten/loosen, `minLength`/`maxLength`, `minimum`/`maximum`, `items` type. Composition keywords (`anyOf`/`oneOf`/`allOf`), discriminators, external `$ref`, and `if/then/else` deferred past v1.
+
+### Tests
+- 41 new unit tests in `tests/test_json_schema_diff.py` covering every v1 change type, $ref resolution at root and nested paths, dispatcher routing, and the agents-oss/agentspec rename as a real-world fixture
+- 47 existing OpenAPI tests still passing (no regressions)
+
+### Why
+Validating delimit-action against agents-oss/agentspec#21 (issue inviting integration) revealed that the diff engine returned `0 changes` on bare JSON Schema files. The maintainer had explicitly invited a PR. This release closes the gap before that PR opens.
+
 ## [1.7.0] - 2026-03-26
 
 ### Features
