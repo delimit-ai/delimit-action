@@ -140,14 +140,70 @@ jobs:
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `spec` | No | `''` | Path to the changed OpenAPI spec. On pull requests, Delimit auto-fetches the base branch version for comparison. |
+| `spec` | No | `''` | Path to the changed OpenAPI or JSON Schema spec. On pull requests, Delimit auto-fetches the base branch version for comparison. |
 | `old_spec` | No | `''` | Path to the old/base API specification file. |
 | `new_spec` | No | `''` | Path to the new/changed API specification file. |
 | `mode` | No | `advisory` | `advisory` (comments only) or `enforce` (fails CI on breaking changes). |
+| `fail_on_breaking` | No | `false` | Boolean alias for `mode: enforce`. When `true`, fails CI on breaking changes regardless of `mode`. |
 | `github_token` | No | `${{ github.token }}` | GitHub token used to post PR comments. |
 | `policy_file` | No | `''` | Path to a custom policy file (e.g., `.delimit/policies.yml`). |
+| `webhook_url` | No | `''` | Slack or Discord webhook URL. Delimit posts a notification when breaking changes are detected. Auto-detects the platform from the URL. |
+| `generator_command` | No | `''` | Optional shell command that regenerates a generated artifact (e.g. `pnpm run schema:export`). When set, Delimit runs this command in a sandbox and diffs the regenerated output against the committed artifact to detect drift between source-of-truth and committed file. Pair with `generator_artifact`. See [Generator drift detection](#generator-drift-detection). |
+| `generator_artifact` | No | `''` | Path to the generated artifact that `generator_command` produces (e.g. `schemas/v1/agent.schema.json`). Required when `generator_command` is set. |
 
 > **Note**: Provide either `spec` for pull request workflows, or both `old_spec` and `new_spec` for explicit comparisons. If neither form is provided, the action exits with an error.
+
+---
+
+## Generator drift detection
+
+Many repos commit a JSON Schema (or similar artifact) that is generated from a source-of-truth file — for example a Zod schema in TypeScript compiled to JSON Schema via `zodToJsonSchema`, or a Protobuf file compiled to OpenAPI. A common class of bug is that someone updates the source and forgets to regenerate the committed artifact, so the two drift apart silently.
+
+Delimit can catch this on every PR by running the generator in a sandbox and diffing its output against the committed file.
+
+```yaml
+- uses: delimit-ai/delimit-action@v1
+  with:
+    spec: schemas/v1/agent.schema.json
+    generator_command: pnpm run schema:export
+    generator_artifact: schemas/v1/agent.schema.json
+```
+
+On every PR that touches the schema:
+
+1. Delimit runs `generator_command` in a sandboxed copy of the working tree.
+2. It reads the regenerated artifact and diffs it against the committed file.
+3. Any drift is reported in the PR comment, classified using the same JSON Schema semantics as normal schema changes (property add/remove, required, type widen/narrow, enum, `const`, `additionalProperties`, pattern, length and numeric bounds).
+4. The committed file is restored before the workflow exits — the working tree is never modified.
+
+If the regenerated output matches the committed artifact exactly, no drift is reported and the check passes silently. If the generator fails (non-zero exit or missing output file), Delimit reports the failure as an advisory warning and continues with the normal schema diff.
+
+This is separate from the base-branch schema diff. Both run on the same PR and are reported in the same comment:
+
+- **Schema classification** — committed JSON Schema vs base branch (what changed in this PR)
+- **Generator drift** — regenerated artifact vs committed file in this PR (is the committed file stale)
+
+You can use either independently, or both together. `generator_command` is opt-in — leave it empty to skip the drift check entirely.
+
+### Supported generators
+
+Anything that produces a JSON Schema or OpenAPI file at a known path and exits with code `0`. Common examples:
+
+```yaml
+# Zod → JSON Schema via zodToJsonSchema
+generator_command: pnpm run schema:export
+generator_artifact: schemas/v1/agent.schema.json
+
+# Protobuf → OpenAPI via buf or protoc-gen-openapi
+generator_command: buf generate
+generator_artifact: gen/openapi/api.yaml
+
+# TypeBox → JSON Schema
+generator_command: npm run build:schema
+generator_artifact: dist/schema.json
+```
+
+The action needs whatever toolchain the generator depends on to already be installed in the workflow — add `actions/setup-node`, `pnpm/action-setup`, or equivalent steps before the Delimit step.
 
 ---
 
