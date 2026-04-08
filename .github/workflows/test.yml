@@ -30,6 +30,9 @@ jobs:
   self-test-advisory:
     name: Self-test (advisory mode, breaking fixtures)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +59,9 @@ jobs:
   self-test-enforce:
     name: Self-test (enforce mode, safe fixtures)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
