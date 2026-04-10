@@ -2,6 +2,15 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.9.1] - 2026-04-09
+
+### Fixed
+- **github-script comment-post 403 unhandled throw (LED-807)** — when consumer workflows did not grant `permissions: pull-requests: write`, the JSON Schema and OpenAPI comment-post steps would unhandled-throw on `Resource not accessible by integration` and hang the action run. Both comment paths are now wrapped in `try/catch` with explicit 403 handling that emits `core.warning` (run still succeeds) and never rethrows. Non-403 errors still rethrow. The dedicated "Enforce breaking change policy" step is unchanged. Unblocks `agents-oss/agentspec#39` outreach conversion — external maintainer @skokaina hit this live 2026-04-09.
+
+### Tests
+- New: `tests/test_action_yml_comment_403.py` — 9 tests covering the 403 branch, the non-403 rethrow branch, and that the comment step never gates the run.
+- Total: 195 passing.
+
 ## [1.9.0] - 2026-04-07
 
 ### Features

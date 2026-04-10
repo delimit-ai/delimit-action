@@ -358,26 +358,48 @@ runs:
             body += `---\n`;
             body += `Powered by [Delimit](https://github.com/delimit-ai/delimit-action) — API governance for every PR`;
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes('Delimit'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
+            // LED-807: wrap comment post in try/catch so a 403 from
+            // missing GITHUB_TOKEN permissions does not fail the job when
+            // the analysis itself was green/advisory.
+            try {
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body,
               });
+              const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes('Delimit'));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body,
+                });
+              }
+            } catch (err) {
+              if (err && err.status === 403) {
+                const verdict = (drift && drift.drifted) || (schemaChanges && schemaChanges.some(c => c.is_breaking))
+                  ? 'breaking'
+                  : 'green';
+                core.warning(
+                  'Delimit could not post the JSON Schema summary comment — ' +
+                  'workflow is missing `permissions: pull-requests: write` (and `issues: write` for issue comments). ' +
+                  'Analysis verdict: ' + verdict + '. ' +
+                  'See https://github.com/delimit-ai/delimit-action#permissions for the one-line fix.'
+                );
+                // Do not rethrow — the analysis already ran. Final fail/pass
+                // is owned by the dedicated "Fail on breaking changes" step,
+                // not by whether the comment landed.
+              } else {
+                throw err;
+              }
             }
             return;
           }
@@ -523,31 +545,51 @@ runs:
           body += `---\n`;
           body += `Powered by [Delimit](https://delimit.ai) \u{00B7} [Docs](https://delimit.ai/docs) \u{00B7} [Install](https://github.com/marketplace/actions/delimit-api-governance)`;
 
-          // Find existing comment to update
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-          });
-
-          const existing = comments.find(c =>
-            c.user.type === 'Bot' && c.body.includes('Delimit')
-          );
-
-          if (existing) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: existing.id,
-              body,
-            });
-          } else {
-            await github.rest.issues.createComment({
+          // LED-807: wrap comment post in try/catch so a 403 from missing
+          // GITHUB_TOKEN permissions does not fail the job. The actual
+          // breaking-change verdict is enforced by the dedicated
+          // "Fail on breaking changes" step further down.
+          try {
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body,
             });
+
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Delimit')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+          } catch (err) {
+            if (err && err.status === 403) {
+              const verdict = bc > 0 ? 'breaking' : (mode === 'advisory' ? 'advisory' : 'green');
+              core.warning(
+                'Delimit could not post the PR summary comment — ' +
+                'workflow is missing `permissions: pull-requests: write` (and `issues: write` for issue comments). ' +
+                'Analysis verdict: ' + verdict + ' (' + bc + ' breaking change' + (bc !== 1 ? 's' : '') + '). ' +
+                'See https://github.com/delimit-ai/delimit-action#permissions for the one-line fix.'
+              );
+              // Do not rethrow — analysis already ran. Final job pass/fail is
+              // owned by the "Fail on breaking changes" step, not by whether
+              // the comment landed.
+            } else {
+              throw err;
+            }
           }
 
     - name: Send webhook notification
