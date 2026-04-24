@@ -2,6 +2,26 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.10.0] - 2026-04-24
+
+### Features
+- **"Learn more" link on breaking-change PR comments (LED-1086)** — when a breaking change is detected, the PR comment now includes a single link to `https://delimit.ai/api-breaking-changes` with public GitHub metadata as URL parameters (repo, PR number, top change type). Consent-based; the Action makes no outbound calls. Link is suppressed when there are no breaking changes so clean PRs stay quiet. Both OpenAPI and JSON Schema renderers.
+
+### Infrastructure
+- **Signed releases via Sigstore + SLSA (LED-1088)** — new `.github/workflows/release.yml` produces four artifacts per tag push: source tarball, SHA256 checksum, **Sigstore bundle** (keyless OIDC signing, Rekor-logged), and a **CycloneDX SBOM**. Plus a separate SLSA build-provenance attestation via `actions/attest-build-provenance@v2`, verifiable with `gh attestation verify <tag>.tar.gz --owner delimit-ai`. This release (v1.10.0) is the first signed release; the Sigstore bundle and SBOM are attached to the GitHub release.
+
+### Docs
+- **SECURITY.md threat model (LED-1089)** — expanded from a thin policy into a full threat model with install-time vs runtime surfaces documented separately. Includes pinning guidance, Cosign verification command, explicit file-read/write enumeration, outbound network claim (`api.github.com` only, no `delimit.ai` calls), `GITHUB_TOKEN` minimum scopes, and a clear out-of-scope section.
+
+### Fixed
+- **Learn more URL target** — initial LED-1086 pointed at `/action-help` (unbuilt route). Corrected to `/api-breaking-changes` (existing SEO-optimized page) so clicks don't 404. URL parameters preserved.
+
+### Why this release
+First release in the v2 distribution plan arc (post-2026-04-24 adversarial rebuttal, 92/100 confidence). The rebuttal required Sigstore-verifiable releases before any public CLI or MCP launch. This is that foundation — the installer artifact developers can verify without trusting a pinky promise.
+
+### Tests
+- Existing 195 tests pass. No behavior changes on the enforcement path.
+
 ## [1.9.1] - 2026-04-09
 
 ### Fixed
