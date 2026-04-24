@@ -360,7 +360,7 @@ runs:
               const topType = (breaking[0] && breaking[0].type) || 'breaking_change';
               const ownerRepo = `${context.repo.owner}/${context.repo.repo}`;
               const learnMoreUrl =
-                `https://delimit.ai/action-help` +
+                `https://delimit.ai/api-breaking-changes` +
                 `?src=pr-comment&spec=json_schema` +
                 `&repo=${encodeURIComponent(ownerRepo)}` +
                 `&pr=${context.issue.number}&change=${encodeURIComponent(topType)}`;
@@ -564,7 +564,7 @@ runs:
               || 'breaking_change';
             const ownerRepo = `${context.repo.owner}/${context.repo.repo}`;
             const learnMoreUrl =
-              `https://delimit.ai/action-help` +
+              `https://delimit.ai/api-breaking-changes` +
               `?src=pr-comment&repo=${encodeURIComponent(ownerRepo)}` +
               `&pr=${context.issue.number}&change=${encodeURIComponent(topChangeType)}`;
             body += `[Learn more about this break and how to fix it](${learnMoreUrl})\n\n`;
