@@ -355,6 +355,18 @@ runs:
               }
             }
 
+            // LED-1086 — "Learn more" link on breaking changes only.
+            if (breaking.length > 0) {
+              const topType = (breaking[0] && breaking[0].type) || 'breaking_change';
+              const ownerRepo = `${context.repo.owner}/${context.repo.repo}`;
+              const learnMoreUrl =
+                `https://delimit.ai/action-help` +
+                `?src=pr-comment&spec=json_schema` +
+                `&repo=${encodeURIComponent(ownerRepo)}` +
+                `&pr=${context.issue.number}&change=${encodeURIComponent(topType)}`;
+              body += `[Learn more about this break and how to fix it](${learnMoreUrl})\n\n`;
+            }
+
             body += `---\n`;
             body += `Powered by [Delimit](https://github.com/delimit-ai/delimit-action) — API governance for every PR`;
 
@@ -539,6 +551,23 @@ runs:
             body += `\n\n`;
           } else {
             body += `> \u{2705} All governance gates passing. Safe to merge.\n\n`;
+          }
+
+          // LED-1086 — "Learn more" link on breaking changes only. Consent-based
+          // tracking via public GitHub metadata (repo + PR number + top change
+          // type). No cookies, no phone-home; the user chooses to click the URL.
+          // Parameters surface to the landing page so we can attribute inbound
+          // traffic to specific failure shapes.
+          if (bc > 0) {
+            const topChangeType = (violations[0] && violations[0].change_type)
+              || (allChanges[0] && allChanges[0].type)
+              || 'breaking_change';
+            const ownerRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const learnMoreUrl =
+              `https://delimit.ai/action-help` +
+              `?src=pr-comment&repo=${encodeURIComponent(ownerRepo)}` +
+              `&pr=${context.issue.number}&change=${encodeURIComponent(topChangeType)}`;
+            body += `[Learn more about this break and how to fix it](${learnMoreUrl})\n\n`;
           }
 
           // Footer
