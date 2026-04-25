@@ -292,18 +292,28 @@ runs:
     #   - the validate step did not produce a report (no spec to compare)
     - name: Build attestation payload
       id: payload
-      if: always() && inputs.attestation != 'false' && hashFiles('/tmp/delimit_report.json') != ''
+      if: always() && inputs.attestation != 'false'
       run: |
+        # The validate step writes /tmp/delimit_report.json, which is outside
+        # GITHUB_WORKSPACE — so we cannot use `hashFiles()` to gate this step.
+        # The Python here checks the file exists and emits skipped=true if not,
+        # which downstream steps respect via steps.payload.outputs.skipped.
         python3 << 'PAYLOAD_EOF'
-        import json, hashlib, os, time
-        try:
-            with open("/tmp/delimit_report.json") as f:
-                report = json.load(f)
-        except Exception:
-            print("::warning::No report file found, skipping attestation")
+        import json, hashlib, os, time, sys
+        report_path = "/tmp/delimit_report.json"
+        if not os.path.exists(report_path):
+            print(f"::warning::Report file not found at {report_path} — skipping attestation. (Validate step did not produce a report — likely no spec to diff.)")
             with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                 f.write("skipped=true\n")
-            raise SystemExit(0)
+            sys.exit(0)
+        try:
+            with open(report_path) as f:
+                report = json.load(f)
+        except Exception as e:
+            print(f"::warning::Could not parse {report_path}: {e} — skipping attestation")
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("skipped=true\n")
+            sys.exit(0)
         # Bind the report to its (repo, commit, workflow, runner) context so
         # a reviewer can replay the exact provenance, not just the diff result.
         payload = {
