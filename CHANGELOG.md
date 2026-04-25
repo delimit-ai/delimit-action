@@ -2,6 +2,23 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.11.2] - 2026-04-25
+
+### Features
+- **Workflow binding + run URL surfaced in attestation comment + permalink** — the PR comment footer now shows the `workflow_ref` value baked into the Fulcio cert SAN (e.g. `owner/repo/.github/workflows/api-check.yml@refs/pull/3/merge`) plus a link to the workflow run page where the signed bundle is downloadable. The companion `/att/<id>` page on delimit.ai renders these as dedicated cards and pre-fills the `cosign verify-blob --certificate-identity` command bound to the exact workflow URI, so a reviewer can copy-paste a strict verification without leaving the comment.
+
+### Why
+Verified end-to-end on the v1.11.0 dogfood (delimit-action-demo#3): downloaded the artifact + ran the pre-filled cosign command → "Verified OK". A reviewer who knows the source workflow can refuse signatures from any other workflow at this exact ref. That's the strongest provenance binding Sigstore offers.
+
+## [1.11.1] - 2026-04-25
+
+### Fixed
+- **PR comment Breaking Changes table now shows ALL breaking changes, not just policy hits.** v1.11.0 dogfood caught: summary correctly counted "2 breaking changes" but the table only rendered the 1 entry that had a matching policy violation (the pure-diff `required_field_added` was missing). Now sources from `allChanges.filter(c => c.is_breaking)` with cross-referenced violations for richer severity icons; pure-diff breakers fall back to a default Critical icon. Migration guide gets the same coverage plus a `typeHints` map so type-driven hints fire when no rule-driven hint exists.
+- **`hashFiles('/tmp/delimit_report.json')` was always returning empty** because `hashFiles` is workspace-scoped, silently no-op'ing the entire signing chain. Now uses an in-step Python existence check.
+
+### Tests
+- New `Self-test (Sigstore-signed attestation, LED-1120)` job grants `id-token: write`, runs the action against safe fixtures, and asserts: 16-char hex `attestation_id`, well-formed `delimit.ai/att/<id>?...` permalink, positive-integer Rekor `logIndex`. The first run of this self-test caught the `hashFiles` bug that the v1.11.0 release shipped with — the dogfood loop in action.
+
 ## [1.11.0] - 2026-04-25
 
 ### Features
