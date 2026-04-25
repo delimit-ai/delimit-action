@@ -635,18 +635,37 @@ runs:
             if (warnings.length > 0) body += `| Warnings | ${warnings.length} |\n`;
             body += `\n`;
 
-            // Breaking changes table
-            if (errors.length || warnings.length) {
+            // Breaking changes table — sourced from allChanges so EVERY
+            // breaking change appears, not only those with matching policy
+            // rules (LED-1120 dogfood caught this: summary said "2 breaking"
+            // but table showed only the 1 entry that had a violation).
+            // Cross-reference with violations so policy hits get richer
+            // severity icons; pure-diff breakers fall back to a Critical icon.
+            const breakingChanges = allChanges.filter(c => c.is_breaking);
+            const violationByPath = {};
+            for (const v of violations) {
+              violationByPath[v.path] = v;
+            }
+            if (breakingChanges.length > 0) {
               body += `### Breaking Changes\n\n`;
               body += `| Severity | Change | Location |\n`;
               body += `|----------|--------|----------|\n`;
-              errors.forEach(v => {
-                const s = severityOf(v.rule);
-                body += `| ${s.icon} ${s.label} | ${v.message} | \`${v.path}\` |\n`;
-              });
-              warnings.forEach(v => {
-                body += `| \u{1F7E1} Warning | ${v.message} | \`${v.path}\` |\n`;
-              });
+              for (const c of breakingChanges) {
+                const v = violationByPath[c.path];
+                let icon, label;
+                if (v && v.severity === 'error') {
+                  const s = severityOf(v.rule);
+                  icon = s.icon; label = s.label;
+                } else if (v && v.severity === 'warning') {
+                  icon = '\u{1F7E1}'; label = 'Warning';
+                } else {
+                  // Pure-diff breaker (no policy rule attached) — still breaking
+                  icon = '\u{1F534}'; label = 'Breaking';
+                }
+                const path = c.path || '';
+                const msg = c.message || (c.type ? c.type.replace(/_/g, ' ') : '');
+                body += `| ${icon} ${label} | ${msg} | \`${path}\` |\n`;
+              }
               body += `\n`;
             }
 
@@ -659,13 +678,14 @@ runs:
               body += `\n</details>\n\n`;
             }
 
-            // Migration guide
+            // Migration guide — covers every breaking change, not just
+            // policy-rule violations (LED-1120 fix companion).
             if (migration && decision === 'fail') {
               body += `<details>\n<summary>\u{1F4CB} Migration guide</summary>\n\n`;
               body += migration + '\n\n</details>\n\n';
-            } else if (errors.length > 0) {
+            } else if (breakingChanges.length > 0) {
               body += `<details>\n<summary>\u{1F4CB} Migration guide</summary>\n\n`;
-              const hints = {
+              const ruleHints = {
                 no_endpoint_removal: 'Consumers must stop calling this endpoint. Consider a deprecation period before removal.',
                 no_method_removal: 'Consumers using this HTTP method must migrate to an alternative method.',
                 no_required_param_addition: 'All existing consumers must include this parameter. Consider making it optional with a default value.',
@@ -675,9 +695,22 @@ runs:
                 warn_type_change: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
                 no_enum_removal: 'Consumers using this value must update. Consider keeping it as deprecated.',
               };
-              errors.forEach((v, i) => {
-                body += `**${i + 1}. \`${v.path}\`**\n`;
-                body += `${hints[v.rule] || 'Review this change and update consumers accordingly.'}\n\n`;
+              const typeHints = {
+                endpoint_removed: 'Consumers must stop calling this endpoint. Consider a deprecation period before removal.',
+                method_removed: 'Consumers using this HTTP method must migrate to an alternative method.',
+                required_field_added: 'All existing consumers must include this field. Consider making it optional with a default value.',
+                required_param_added: 'All existing consumers must include this parameter. Consider making it optional with a default value.',
+                field_removed: 'Consumers reading this field will break. Add it back or provide a migration path.',
+                response_field_removed: 'Consumers reading this field will break. Add it back or provide a migration path.',
+                type_changed: 'Consumers expecting the old type will fail to parse. Coordinate the type migration.',
+                enum_value_removed: 'Consumers using this value must update. Consider keeping it as deprecated.',
+              };
+              breakingChanges.forEach((c, i) => {
+                const v = violationByPath[c.path];
+                const ruleHint = v && ruleHints[v.rule];
+                const typeHint = c.type && typeHints[c.type];
+                body += `**${i + 1}. \`${c.path || c.type || 'change'}\`**\n`;
+                body += `${ruleHint || typeHint || 'Review this change and update consumers accordingly.'}\n\n`;
               });
               body += `</details>\n\n`;
             }
