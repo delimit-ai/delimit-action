@@ -383,12 +383,17 @@ runs:
             print('', end='')
         ")
         # Thread context into the permalink so the verification page can
-        # render repo/PR/commit without us hosting any storage.
+        # render repo/PR/commit/workflow/run without us hosting any storage.
         PR_NUM="${{ github.event.pull_request.number }}"
+        WF_REF="${{ github.workflow_ref }}"
+        RUN_ID="${{ github.run_id }}"
+        urlencode() { printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))'; }
         QS="rekor=$REKOR_INDEX"
-        QS+="&repo=$(printf '%s' "$GITHUB_REPOSITORY" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))')"
+        QS+="&repo=$(urlencode "$GITHUB_REPOSITORY")"
         if [ -n "$PR_NUM" ]; then QS+="&pr=$PR_NUM"; fi
         QS+="&commit=$GITHUB_SHA"
+        if [ -n "$RUN_ID" ]; then QS+="&run=$RUN_ID"; fi
+        if [ -n "$WF_REF" ]; then QS+="&ref=$(urlencode "$WF_REF")"; fi
         PERMALINK="https://delimit.ai/att/$ATT_ID?$QS"
         {
           echo "attestation_id=$ATT_ID"
@@ -416,6 +421,8 @@ runs:
         DELIMIT_ATTESTATION_ID: ${{ steps.attest.outputs.attestation_id }}
         DELIMIT_ATTESTATION_REKOR: ${{ steps.attest.outputs.rekor_log_index }}
         DELIMIT_ATTESTATION_URL: ${{ steps.attest.outputs.permalink }}
+        DELIMIT_WORKFLOW_REF: ${{ github.workflow_ref }}
+        DELIMIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
@@ -435,6 +442,8 @@ runs:
           const attId = process.env.DELIMIT_ATTESTATION_ID || '';
           const attRekor = process.env.DELIMIT_ATTESTATION_REKOR || '';
           const attUrl = process.env.DELIMIT_ATTESTATION_URL || '';
+          const wfRef = process.env.DELIMIT_WORKFLOW_REF || '';
+          const runUrl = process.env.DELIMIT_RUN_URL || '';
           const attestationFooter = attId
             ? (() => {
                 let s = `\n### \u{1F50F} Signed attestation\n\n`;
@@ -442,6 +451,8 @@ runs:
                 s += `- **ID:** \`${attId}\`\n`;
                 if (attUrl) s += `- **View & verify:** [${attUrl}](${attUrl})\n`;
                 if (attRekor) s += `- **Rekor entry:** [#${attRekor}](https://search.sigstore.dev/?logIndex=${encodeURIComponent(attRekor)})\n`;
+                if (wfRef) s += `- **Bound to workflow:** \`${wfRef}\`\n`;
+                if (runUrl) s += `- **Workflow run:** [${runUrl.split('/').slice(-2).join('/')}](${runUrl}) (download \`delimit-attestation-${attId}\` artifact to verify locally)\n`;
                 s += `\n`;
                 return s;
               })()
