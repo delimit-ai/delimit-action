@@ -2,6 +2,26 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.11.0] - 2026-04-25
+
+### Features
+- **Per-PR Sigstore-signed governance attestation (LED-1120)** — every PR run now produces a keyless-signed attestation that any reviewer can verify without trusting the runner. Pipeline: deterministic JSON payload binding the report to its (repo, commit, workflow, run_id, actor) context → `cosign sign-blob` keyless via GitHub OIDC → Rekor public transparency log entry → 90-day workflow artifact (`delimit-attestation-<id>`) → permalink + Rekor link in the PR comment footer.
+- **New input** `attestation: 'true' | 'false'` (default `true`). Set to `false` to disable signing entirely.
+- **New outputs** `attestation_id`, `attestation_rekor_log_index`, `attestation_url` for downstream automation that wants to thread the signed proof into other systems.
+- **Companion `/att/<id>` verification page** on delimit.ai — minimal markdown view with the cosign verify command, Rekor deep-link, and PR/commit/repo context. The replay URL IS the UI; no separate Replay app.
+
+### Why this release
+Per the unanimous strategic deliberation 2026-04-25: this is the first time the locked external promise ("the merge gate for AI-written code, with signed, replayable attestation") becomes a buyer-visible artifact. Until this shipped, every accumulated install was scaffolding around an empty lot — there was no signed proof on a real PR for a stranger to inspect. v1.10.0 added signed *releases*; v1.11.0 makes signed *PRs* the default.
+
+### Permissions required by callers
+The new flow requires `permissions: { id-token: write }` in the calling workflow for cosign keyless signing to succeed. **Backwards-compat guarantee**: if `id-token: write` is absent, the action emits a `::warning::` and the entire attestation chain gracefully no-ops — existing PR comment shape and outputs remain unchanged. No required workflow change for adopters who don't enable signing.
+
+### Tests
+- Adds dedicated self-test that grants `id-token: write`, runs the action against safe fixtures, and asserts: 16-char hex `attestation_id`, well-formed `delimit.ai/att/<id>?...` permalink, positive-integer Rekor `logIndex`. If cosign signing breaks, this self-test fails clearly.
+
+### Fixed
+- `hashFiles('/tmp/delimit_report.json')` was always returning empty (`hashFiles` is workspace-scoped) which silently no-op'd the signing chain in the first attempt. Switched to a Python file-exists check inside the step.
+
 ## [1.10.0] - 2026-04-24
 
 ### Features
