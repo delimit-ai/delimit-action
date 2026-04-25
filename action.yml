@@ -411,7 +411,12 @@ runs:
         path: |
           /tmp/delimit_attestation.json
           /tmp/delimit_attestation.sigstore
-        retention-days: 90
+        # 365 = max for free tier accounts. The Rekor entry persists
+        # forever via Sigstore's transparency log, so even after this
+        # artifact expires the signature is still publicly verifiable —
+        # the artifact is the cached payload + bundle that lets you skip
+        # the Rekor body decode.
+        retention-days: 365
         if-no-files-found: ignore
 
     - name: Comment on PR
