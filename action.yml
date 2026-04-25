@@ -60,6 +60,10 @@ inputs:
     description: 'Slack or Discord webhook URL for breaking change notifications'
     required: false
     default: ''
+  attestation:
+    description: 'Sign the governance report with Sigstore keyless signing and surface a verifiable permalink. Requires `id-token: write` in the calling workflow. Set to "false" to disable. (LED-1120)'
+    required: false
+    default: 'true'
 
 outputs:
   breaking_changes_detected:
@@ -77,6 +81,15 @@ outputs:
   report:
     description: 'JSON report of all detected changes'
     value: ${{ steps.validate.outputs.report }}
+  attestation_id:
+    description: 'Stable identifier for the signed governance attestation (16-char prefix of sha256(payload)). Empty if attestation was skipped.'
+    value: ${{ steps.attest.outputs.attestation_id }}
+  attestation_rekor_log_index:
+    description: 'Rekor transparency log index for the keyless signature. Empty if attestation was skipped.'
+    value: ${{ steps.attest.outputs.rekor_log_index }}
+  attestation_url:
+    description: 'Public verifiable permalink for the signed attestation. Empty if attestation was skipped.'
+    value: ${{ steps.attest.outputs.permalink }}
 
 runs:
   using: 'composite'
@@ -267,9 +280,132 @@ runs:
         DELIMIT_EOF
       shell: bash
 
+    # LED-1120 — sign the governance report with Sigstore keyless signing.
+    # The signed bundle, the Rekor log index, and a public verification
+    # permalink are surfaced via outputs and threaded into the PR comment so
+    # any reviewer can verify the report came from this exact (repo, commit,
+    # workflow) without trusting the action runner.
+    #
+    # Gracefully no-ops when:
+    #   - attestation: 'false' is set
+    #   - id-token: write is not granted in the calling workflow
+    #   - the validate step did not produce a report (no spec to compare)
+    - name: Build attestation payload
+      id: payload
+      if: always() && inputs.attestation != 'false' && hashFiles('/tmp/delimit_report.json') != ''
+      run: |
+        python3 << 'PAYLOAD_EOF'
+        import json, hashlib, os, time
+        try:
+            with open("/tmp/delimit_report.json") as f:
+                report = json.load(f)
+        except Exception:
+            print("::warning::No report file found, skipping attestation")
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("skipped=true\n")
+            raise SystemExit(0)
+        # Bind the report to its (repo, commit, workflow, runner) context so
+        # a reviewer can replay the exact provenance, not just the diff result.
+        payload = {
+            "schema": "delimit.attestation.v1",
+            "tool": "delimit-action",
+            "tool_version": os.environ.get("GITHUB_ACTION_REF", "unknown"),
+            "repo": os.environ.get("GITHUB_REPOSITORY", ""),
+            "commit": os.environ.get("GITHUB_SHA", ""),
+            "workflow": os.environ.get("GITHUB_WORKFLOW", ""),
+            "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+            "event": os.environ.get("GITHUB_EVENT_NAME", ""),
+            "ref": os.environ.get("GITHUB_REF", ""),
+            "actor": os.environ.get("GITHUB_ACTOR", ""),
+            "issued_at": int(time.time()),
+            "report": report,
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        att_id = digest[:16]
+        with open("/tmp/delimit_attestation.json", "w") as f:
+            f.write(canonical)
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"attestation_id={att_id}\n")
+            f.write(f"digest={digest}\n")
+            f.write("skipped=false\n")
+        PAYLOAD_EOF
+      shell: bash
+
+    - name: Install Cosign
+      if: always() && steps.payload.outputs.skipped == 'false'
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign attestation (Sigstore keyless)
+      id: attest
+      if: always() && steps.payload.outputs.skipped == 'false'
+      env:
+        ATT_ID: ${{ steps.payload.outputs.attestation_id }}
+      run: |
+        # Keyless signing: GitHub OIDC -> Fulcio short-lived cert.
+        # Rekor transparency log records the signature so it remains
+        # publicly verifiable after the cert expires.
+        BUNDLE="/tmp/delimit_attestation.sigstore"
+        if ! cosign sign-blob --yes \
+            --bundle "$BUNDLE" \
+            /tmp/delimit_attestation.json 2> /tmp/cosign.stderr; then
+          echo "::warning::cosign signing failed — likely missing 'id-token: write' permission. Add 'permissions: { id-token: write }' to your workflow to enable signed attestations."
+          tail -20 /tmp/cosign.stderr || true
+          {
+            echo "attestation_id="
+            echo "rekor_log_index="
+            echo "permalink="
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # Pull the Rekor log index from the bundle for the permalink
+        REKOR_INDEX=$(python3 -c "
+        import json, sys, base64
+        try:
+            with open('$BUNDLE') as f:
+                bundle = json.load(f)
+            entries = bundle.get('rekorBundle', {}).get('Payload', {}).get('logIndex')
+            if entries is None:
+                # cosign new-style bundle field
+                entries = bundle.get('verificationMaterial', {}).get('tlogEntries', [{}])[0].get('logIndex', '')
+            print(entries)
+        except Exception as e:
+            print('', end='')
+        ")
+        # Thread context into the permalink so the verification page can
+        # render repo/PR/commit without us hosting any storage.
+        PR_NUM="${{ github.event.pull_request.number }}"
+        QS="rekor=$REKOR_INDEX"
+        QS+="&repo=$(printf '%s' "$GITHUB_REPOSITORY" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))')"
+        if [ -n "$PR_NUM" ]; then QS+="&pr=$PR_NUM"; fi
+        QS+="&commit=$GITHUB_SHA"
+        PERMALINK="https://delimit.ai/att/$ATT_ID?$QS"
+        {
+          echo "attestation_id=$ATT_ID"
+          echo "rekor_log_index=$REKOR_INDEX"
+          echo "permalink=$PERMALINK"
+        } >> "$GITHUB_OUTPUT"
+        echo "Signed attestation $ATT_ID (Rekor index $REKOR_INDEX)"
+      shell: bash
+
+    - name: Upload attestation artifacts
+      if: always() && steps.payload.outputs.skipped == 'false' && steps.attest.outputs.attestation_id != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: delimit-attestation-${{ steps.payload.outputs.attestation_id }}
+        path: |
+          /tmp/delimit_attestation.json
+          /tmp/delimit_attestation.sigstore
+        retention-days: 90
+        if-no-files-found: ignore
+
     - name: Comment on PR
       if: always() && github.event_name == 'pull_request'
       uses: actions/github-script@v6
+      env:
+        DELIMIT_ATTESTATION_ID: ${{ steps.attest.outputs.attestation_id }}
+        DELIMIT_ATTESTATION_REKOR: ${{ steps.attest.outputs.rekor_log_index }}
+        DELIMIT_ATTESTATION_URL: ${{ steps.attest.outputs.permalink }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
@@ -281,6 +417,25 @@ runs:
             console.log('No report file found, skipping PR comment');
             return;
           }
+
+          // LED-1120 — Attestation footer block. Renders only when the
+          // signing step produced an id; gracefully omits otherwise so the
+          // existing comment shape stays intact for callers without
+          // id-token: write.
+          const attId = process.env.DELIMIT_ATTESTATION_ID || '';
+          const attRekor = process.env.DELIMIT_ATTESTATION_REKOR || '';
+          const attUrl = process.env.DELIMIT_ATTESTATION_URL || '';
+          const attestationFooter = attId
+            ? (() => {
+                let s = `\n### \u{1F50F} Signed attestation\n\n`;
+                s += `> This governance verdict is signed via Sigstore keyless and recorded in the public Rekor transparency log. Anyone can verify it without trusting the action runner.\n\n`;
+                s += `- **ID:** \`${attId}\`\n`;
+                if (attUrl) s += `- **View & verify:** [${attUrl}](${attUrl})\n`;
+                if (attRekor) s += `- **Rekor entry:** [#${attRekor}](https://search.sigstore.dev/?logIndex=${encodeURIComponent(attRekor)})\n`;
+                s += `\n`;
+                return s;
+              })()
+            : '';
 
           const semver = report.semver || {};
           const summary = report.summary || {};
@@ -366,6 +521,8 @@ runs:
                 `&pr=${context.issue.number}&change=${encodeURIComponent(topType)}`;
               body += `[Learn more about this break and how to fix it](${learnMoreUrl})\n\n`;
             }
+
+            if (attestationFooter) body += attestationFooter;
 
             body += `---\n`;
             body += `Powered by [Delimit](https://github.com/delimit-ai/delimit-action) — API governance for every PR`;
@@ -569,6 +726,8 @@ runs:
               `&pr=${context.issue.number}&change=${encodeURIComponent(topChangeType)}`;
             body += `[Learn more about this break and how to fix it](${learnMoreUrl})\n\n`;
           }
+
+          if (attestationFooter) body += attestationFooter;
 
           // Footer
           body += `---\n`;
