@@ -2,6 +2,14 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [1.11.3] - 2026-04-25
+
+### Features
+- **Attestation artifact retention extended 90 → 365 days.** The Rekor entry persists forever via Sigstore's transparency log, but the cached payload + bundle was disappearing from GitHub Actions artifact storage after 90 days, forcing reviewers to reconstruct the bundle from scratch. 365 = max for free GHA accounts.
+
+### Why this release
+First release where the `@v1` floating tag bumps to a v1.11.x version — meaning every consumer using `delimit-ai/delimit-action@v1` automatically gets per-PR Sigstore-signed attestations on their next run. v1.11.0–v1.11.2 were available behind explicit version pins; v1.11.3 makes them the default.
+
 ## [1.11.2] - 2026-04-25
 
 ### Features
