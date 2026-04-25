@@ -29,6 +29,7 @@ Delimit runs on every pull request, compares your OpenAPI spec against the base 
 - **Semver classification** — deterministic `major` / `minor` / `patch` / `none` bump recommendation with computed next version
 - **Migration guides** — auto-generated step-by-step migration instructions for every breaking change
 - **PR comments** — rich Markdown summary posted directly on your pull request, updated on each push
+- **Signed, replayable attestation per PR (v1.11.0+)** — every run produces a Sigstore keyless-signed claim, recorded in the public Rekor transparency log, with a verifiable `delimit.ai/att/<id>` permalink in the PR comment. Any reviewer can verify without trusting the runner. Add `id-token: write` to your workflow permissions; the rest is automatic.
 - **Advisory and enforce modes** — start with non-blocking warnings, promote to CI-gating when ready
 - **Custom policies** — define your own governance rules in `.delimit/policies.yml` with path patterns, severity levels, and custom messages
 - **7 explainer templates** — developer, team lead, product, migration, changelog, PR comment, and Slack formats
@@ -48,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      id-token: write          # enables the signed Sigstore attestation
     steps:
       - uses: actions/checkout@v4
       - uses: delimit-ai/delimit-action@v1
@@ -56,6 +58,8 @@ jobs:
 ```
 
 That is it. Delimit auto-fetches the base branch version of your spec and diffs it against the PR changes. Runs in **advisory mode** by default — posts a PR comment but never fails your build.
+
+`id-token: write` enables Sigstore keyless signing of the result. Every PR comment gets a verifiable `delimit.ai/att/<id>` permalink that any reviewer can inspect. If you don't grant this permission, the action gracefully no-ops the signing step and the comment falls back to the unsigned shape.
 
 ### What the PR comment looks like
 
