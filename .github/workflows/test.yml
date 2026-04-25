@@ -83,3 +83,52 @@ jobs:
             exit 1
           fi
           echo "PASS: Enforce mode passed with safe changes."
+
+  self-test-attestation:
+    name: Self-test (Sigstore-signed attestation, LED-1120)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write   # required for keyless Sigstore signing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Delimit with attestation enabled
+        id: signed
+        uses: ./
+        with:
+          old_spec: tests/fixtures/api_v1.yaml
+          new_spec: tests/fixtures/api_v2_safe.yaml
+          mode: advisory
+
+      - name: Verify attestation outputs are populated
+        run: |
+          ATT_ID="${{ steps.signed.outputs.attestation_id }}"
+          REKOR="${{ steps.signed.outputs.attestation_rekor_log_index }}"
+          URL="${{ steps.signed.outputs.attestation_url }}"
+
+          echo "attestation_id=$ATT_ID"
+          echo "rekor=$REKOR"
+          echo "url=$URL"
+
+          # The id MUST be a 16-char hex string when signing succeeded.
+          if ! echo "$ATT_ID" | grep -qE '^[a-f0-9]{16}$'; then
+            echo "FAIL: attestation_id missing or malformed (expected 16 hex chars, got '$ATT_ID')."
+            echo "If id-token: write is missing or cosign failed, this should be empty — check workflow permissions."
+            exit 1
+          fi
+
+          # The permalink MUST resolve to the delimit.ai /att/<id> path with context query string.
+          if ! echo "$URL" | grep -qE '^https://delimit\.ai/att/[a-f0-9]{16}\?'; then
+            echo "FAIL: attestation_url missing or malformed (got '$URL')."
+            exit 1
+          fi
+
+          # The Rekor index MUST be a positive integer (Sigstore guarantees this on success).
+          if ! echo "$REKOR" | grep -qE '^[1-9][0-9]+$'; then
+            echo "FAIL: rekor_log_index missing or malformed (got '$REKOR')."
+            exit 1
+          fi
+
+          echo "PASS: signed attestation produced cleanly. Rekor #$REKOR — verifiable at https://search.sigstore.dev/?logIndex=$REKOR"
