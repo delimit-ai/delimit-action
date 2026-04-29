@@ -36,6 +36,16 @@ Delimit runs on every pull request, compares your OpenAPI spec against the base 
 
 ---
 
+## Replay any decision at delimit.ai/att/<id>
+
+Every signed run produces a bundle a third party can verify without trusting the runner. Click the URL printed in the PR comment and you'll land on a page like [delimit.ai/att/att_f86e1f51110e8ed6](https://delimit.ai/att/att_f86e1f51110e8ed6) — the panel that adjudicated, the per-model verdicts, the dissents preserved as evidence, and a copy-paste HMAC-SHA256 verifier so reviewers, auditors, and underwriters can check the signature locally.
+
+For multi-agent teams running Claude, Codex, Gemini, and Grok in parallel, the replay URL is the proof artifact: cross-vendor adjudication is something single-vendor scanners can't ship by construction.
+
+> Cross-vendor adjudication is the architectural property single-vendor scanners can't replicate. Independent panel signs, dissents survive, signature verifies locally.
+
+---
+
 ## Quick Start
 
 Add this file to `.github/workflows/api-check.yml`:
