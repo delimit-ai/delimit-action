@@ -1,19 +1,22 @@
 name: 'Delimit API Governance'
 description: |
-  API governance copilot for every pull request.
+  Merge gate for AI-written code, with signed, replayable attestation on every PR.
 
-  Delimit diffs your OpenAPI spec against the base branch and posts a governance cockpit PR comment with:
+  Delimit diffs your OpenAPI spec against the base branch and posts a governance PR comment with:
   - Breaking vs non-breaking change classification (27 types)
   - Governance gate status (lint, policy, security, deploy readiness)
-  - Enforcement chain visualization (lint → semver → security → evidence)
+  - Enforcement chain visualization (lint, semver, security, evidence)
   - Severity badges and semver impact
   - Migration guides for breaking changes
+  - Sigstore keyless-signed attestation, recorded in the public Rekor transparency log, with a verifiable delimit.ai/att/<id> permalink any reviewer can check
   - Slack/Discord webhook notifications
 
-  Advisory mode by default — never fails your build until you're ready.
+  Advisory mode by default. Never fails your build until you flip to enforce.
 
-  Works with OpenAPI 3.0 and 3.1 specs (YAML or JSON).
+  Works with OpenAPI 3.0/3.1 and JSON Schema (YAML or JSON).
   No API keys or external services required.
+
+  Worked example: https://delimit.ai/reports/cal-com-v2-attestation
 author: 'Delimit AI'
 branding:
   icon: 'shield'
