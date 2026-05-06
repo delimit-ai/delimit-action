@@ -1,19 +1,20 @@
 # `</>` Delimit GitHub Action
 
-**Catch breaking API changes before merge** — semver classification, migration guides, and policy enforcement for OpenAPI specs.
+**The merge gate for AI-written code, with signed, replayable attestation on every PR.**
 
-
----
-
-## Think and Build
-
-Delimit is more than just an action — it is a governance layer for your AI coding assistants. When you use the Delimit Swarm, you can say **"Think and Build"** to your agents, and they will automatically use this action to verify their own code changes against your API policies before requesting a merge.
+Delimit runs on every pull request, diffs your OpenAPI spec against the base branch, and posts a governance PR comment with breaking changes, semver classification, policy violations, migration guidance, and a Sigstore keyless-signed attestation any reviewer can verify. No API keys, no external services, no config required to get started.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-api-governance)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![API Governance](https://delimit-ai.github.io/badge/pass.svg)](https://github.com/marketplace/actions/delimit-api-governance)
 
-Delimit runs on every pull request, compares your OpenAPI spec against the base branch, and posts a detailed comment with breaking changes, semver classification, policy violations, and migration guidance. No API keys, no external services, no config required to get started.
+## See it in action
+
+Worked example, real OSS repo, every claim verifiable:
+
+- **[cal.com v2 API attestation](https://delimit.ai/reports/cal-com-v2-attestation)**: full diff, signed verdict, replayable bundle. Same chain you get on day one.
+
+For the schema and signing methodology behind every report, see [delimit.ai/methodology/mcp-attestation](https://delimit.ai/methodology/mcp-attestation).
 
 ## What it looks like
 
@@ -636,11 +637,28 @@ delimit explain old-api.yaml new-api.yaml --template migration
 
 ---
 
+## Pricing
+
+The Action itself is free and open source (MIT). The free tier covers public repos with advisory mode, signed attestation, and the full 27-type breaking change classifier.
+
+For teams that want enforcement, governance dashboards, custom policies under multi-model review, and audit-ready trust pages:
+
+- **Pro** ($10/mo): unlimited deliberation, security audit, test verification, policy gating, agent orchestration.
+- **Premium** ($50-100/mo): priority support, team features, attestation history.
+- **Enterprise**: custom. Contact us via [delimit.ai/pricing](https://delimit.ai/pricing).
+
+The action requires no signup. Pro and Premium are managed at [delimit.ai/pricing](https://delimit.ai/pricing).
+
+---
+
 ## Links
 
-- [Delimit CLI on npm](https://www.npmjs.com/package/delimit-cli) — Local development tool
-- [GitHub Repository](https://github.com/delimit-ai/delimit) — Source code and issues
-- [GitHub Action Marketplace](https://github.com/marketplace/actions/delimit-api-governance) — Install from Marketplace
+- [Delimit CLI on npm](https://www.npmjs.com/package/delimit-cli) - Local development tool
+- [Worked example: cal.com v2](https://delimit.ai/reports/cal-com-v2-attestation) - Full attestation report
+- [Methodology](https://delimit.ai/methodology/mcp-attestation) - How signing and replay work
+- [Pricing](https://delimit.ai/pricing) - Free, Pro, Premium, Enterprise
+- [GitHub Repository](https://github.com/delimit-ai/delimit) - Source code and issues
+- [GitHub Action Marketplace](https://github.com/marketplace/actions/delimit-api-governance) - Install from Marketplace
 
 ---
 
