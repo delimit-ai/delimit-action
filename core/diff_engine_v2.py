@@ -110,6 +110,13 @@ class OpenAPIDiffEngine:
     
     def _compare_paths(self, old_paths: Dict, new_paths: Dict):
         """Compare API paths/endpoints."""
+        # Defend against malformed specs where `paths` is a list rather than
+        # the spec-required dict (Map[string, PathItem]). Treat as empty
+        # rather than crashing on `.keys()`.
+        if not isinstance(old_paths, dict):
+            old_paths = {}
+        if not isinstance(new_paths, dict):
+            new_paths = {}
         old_set = set(old_paths.keys())
         new_set = set(new_paths.keys())
         
@@ -143,6 +150,12 @@ class OpenAPIDiffEngine:
 
     def _compare_methods(self, path: str, old_methods: Dict, new_methods: Dict):
         """Compare HTTP methods for an endpoint."""
+        # Same defensive pattern as _compare_paths — methods at a path MUST be
+        # a dict per spec, but malformed inputs occur in the wild.
+        if not isinstance(old_methods, dict):
+            old_methods = {}
+        if not isinstance(new_methods, dict):
+            new_methods = {}
         old_set = set(m for m in old_methods.keys() if m in self.HTTP_METHODS)
         new_set = set(m for m in new_methods.keys() if m in self.HTTP_METHODS)
         
@@ -337,9 +350,11 @@ class OpenAPIDiffEngine:
             ))
         elif old_body and new_body:
             # Compare content types
-            old_content = old_body.get("content", {})
-            new_content = new_body.get("content", {})
-            
+            raw_old_content = old_body.get("content", {})
+            raw_new_content = new_body.get("content", {})
+            old_content = raw_old_content if isinstance(raw_old_content, dict) else {}
+            new_content = raw_new_content if isinstance(raw_new_content, dict) else {}
+
             for content_type in old_content.keys() & new_content.keys():
                 self._compare_schema_deep(
                     f"{operation_id}:request",
@@ -349,6 +364,11 @@ class OpenAPIDiffEngine:
     
     def _compare_responses(self, operation_id: str, old_responses: Dict, new_responses: Dict):
         """Compare response definitions."""
+        # Defend against malformed specs where `responses` is a list.
+        if not isinstance(old_responses, dict):
+            old_responses = {}
+        if not isinstance(new_responses, dict):
+            new_responses = {}
         old_codes = set(old_responses.keys())
         new_codes = set(new_responses.keys())
         
@@ -366,13 +386,15 @@ class OpenAPIDiffEngine:
         
         # Compare response schemas
         for code in old_codes & new_codes:
-            old_resp = old_responses[code]
-            new_resp = new_responses[code]
-            
+            old_resp = old_responses[code] if isinstance(old_responses[code], dict) else {}
+            new_resp = new_responses[code] if isinstance(new_responses[code], dict) else {}
+
             if "content" in old_resp or "content" in new_resp:
-                old_content = old_resp.get("content", {})
-                new_content = new_resp.get("content", {})
-                
+                raw_old_content = old_resp.get("content", {})
+                raw_new_content = new_resp.get("content", {})
+                old_content = raw_old_content if isinstance(raw_old_content, dict) else {}
+                new_content = raw_new_content if isinstance(raw_new_content, dict) else {}
+
                 for content_type in old_content.keys() & new_content.keys():
                     self._compare_schema_deep(
                         f"{operation_id}:{code}",
