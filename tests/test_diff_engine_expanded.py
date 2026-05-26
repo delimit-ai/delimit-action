@@ -717,5 +717,124 @@ class TestBreakingTypeCompleteness(unittest.TestCase):
         self.assertEqual(len(ChangeType), 27)
 
 
+class TestRefResolution(unittest.TestCase):
+    """LED-1591: $ref-targeted schemas must be resolved so breaking changes
+    *behind* a reference are not silently missed — while NOT double-counting
+    changes already reported once at the component level, and NOT flagging a
+    structurally-identical schema rename as breaking.
+
+    Before the fix, _compare_schema_deep returned immediately whenever either
+    side carried a $ref, so a field repointed to a structurally-different
+    schema (or an inline->$ref refactor that dropped a field) produced zero
+    changes at that path.
+    """
+
+    def _resp_spec(self, schemas, item_schema):
+        """Spec whose GET /w 200 response is an object with one property
+        `item` set to `item_schema`. `schemas` populates components."""
+        return _base_spec(
+            paths={
+                "/w": {
+                    "get": {
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {"item": item_schema},
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            components={"schemas": schemas, "securitySchemes": {}},
+        )
+
+    def test_repoint_to_structurally_different_schema_is_detected(self):
+        """item: $ref A -> $ref B where B drops a field A had. Detected."""
+        schemas = {
+            "A": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}}, "required": ["name"]},
+            "B": {"type": "object", "properties": {"id": {"type": "string"}}},
+        }
+        old = self._resp_spec(schemas, {"$ref": "#/components/schemas/A"})
+        new = self._resp_spec(schemas, {"$ref": "#/components/schemas/B"})
+        changes = _diff(old, new)
+        # A and B are unchanged components, so the ONLY signal is the repoint.
+        breaking = [c for c in changes if c.is_breaking]
+        self.assertTrue(breaking, "repoint to a field-dropping schema must be flagged")
+        self.assertTrue(
+            any(c.type == ChangeType.FIELD_REMOVED for c in breaking),
+            f"expected FIELD_REMOVED behind the ref, got {_types(changes)}",
+        )
+
+    def test_identical_rename_is_not_breaking(self):
+        """item: $ref A -> $ref ARenamed, identical structure. No false positive."""
+        schemas = {
+            "A": {"type": "object", "properties": {"id": {"type": "string"}}},
+            "ARenamed": {"type": "object", "properties": {"id": {"type": "string"}}},
+        }
+        old = self._resp_spec(schemas, {"$ref": "#/components/schemas/A"})
+        new = self._resp_spec(schemas, {"$ref": "#/components/schemas/ARenamed"})
+        breaking = [c for c in _diff(old, new) if c.is_breaking]
+        self.assertEqual(breaking, [], f"identical-structure rename must not be breaking, got {_types(breaking)}")
+
+    def test_same_ref_target_is_not_double_counted(self):
+        """Both sides $ref A; A.id type changes. Reported ONCE at the component,
+        not again at the property path."""
+        old = self._resp_spec(
+            {"A": {"type": "object", "properties": {"id": {"type": "string"}}}},
+            {"$ref": "#/components/schemas/A"},
+        )
+        new = self._resp_spec(
+            {"A": {"type": "object", "properties": {"id": {"type": "integer"}}}},
+            {"$ref": "#/components/schemas/A"},
+        )
+        type_changes = [c for c in _diff(old, new) if c.type == ChangeType.TYPE_CHANGED]
+        self.assertEqual(len(type_changes), 1, f"shared component change must not double-count: {[c.path for c in type_changes]}")
+
+    def test_external_ref_is_skipped_safely(self):
+        """Non-local ($ref to a URL) is unresolvable — no crash, no false positive."""
+        old = self._resp_spec({}, {"$ref": "https://ext.example/schemas/X"})
+        new = self._resp_spec({}, {"$ref": "https://ext.example/schemas/Y"})
+        try:
+            breaking = [c for c in _diff(old, new) if c.is_breaking]
+        except Exception as e:  # pragma: no cover
+            self.fail(f"external ref must not crash the engine: {e}")
+        self.assertEqual(breaking, [], "unresolvable external ref must not fabricate a breaking change")
+
+    def test_inline_to_ref_structural_change_is_detected(self):
+        """item: inline {id, name(required)} -> $ref A where A lacks `name`.
+
+        The dropped field is *required* — the engine flags required-field
+        removal as breaking regardless of how the schema is expressed, so an
+        inline->$ref refactor that drops it must surface (previously the $ref
+        side short-circuited and it was missed)."""
+        schemas = {"A": {"type": "object", "properties": {"id": {"type": "string"}}}}
+        old = self._resp_spec(
+            schemas,
+            {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}}, "required": ["name"]},
+        )
+        new = self._resp_spec(schemas, {"$ref": "#/components/schemas/A"})
+        breaking = [c for c in _diff(old, new) if c.is_breaking]
+        self.assertTrue(
+            any(c.type == ChangeType.FIELD_REMOVED for c in breaking),
+            f"inline->$ref dropping a required field must be flagged, got {_types(_diff(old, new))}",
+        )
+
+    def test_recursive_schema_terminates(self):
+        """A self-referential schema resolved via one-side ref must not loop."""
+        schemas = {"Node": {"type": "object", "properties": {"val": {"type": "string"}, "child": {"$ref": "#/components/schemas/Node"}}}}
+        # old child is inline (forcing one-side-ref resolution), new child is the $ref.
+        old = self._resp_spec(schemas, {"type": "object", "properties": {"val": {"type": "string"}, "child": {"$ref": "#/components/schemas/Node"}}})
+        new = self._resp_spec(schemas, {"$ref": "#/components/schemas/Node"})
+        # Must return (not hang / RecursionError).
+        changes = _diff(old, new)
+        self.assertIsInstance(changes, list)
+
+
 if __name__ == "__main__":
     unittest.main()

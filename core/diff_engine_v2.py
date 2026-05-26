@@ -74,12 +74,22 @@ class OpenAPIDiffEngine:
     
     def __init__(self):
         self.changes: List[Change] = []
-    
+        # Roots for resolving local $ref pointers; populated per compare().
+        self._old_root: Dict = {}
+        self._new_root: Dict = {}
+        # (old_ref, new_ref) pairs on the current descent path — cycle guard.
+        self._ref_stack: Set[tuple] = set()
+
     def compare(self, old_spec: Dict, new_spec: Dict) -> List[Change]:
         """Compare two OpenAPI specifications and return all changes."""
         self.changes = []
         old_spec = old_spec or {}
         new_spec = new_spec or {}
+        # Retain the full docs so _compare_schema_deep can resolve local
+        # "#/..." references (LED-1591).
+        self._old_root = old_spec
+        self._new_root = new_spec
+        self._ref_stack = set()
 
         # Compare paths
         self._compare_paths(old_spec.get("paths", {}), new_spec.get("paths", {}))
@@ -370,6 +380,25 @@ class OpenAPIDiffEngine:
                         new_content[content_type].get("schema", {})
                     )
     
+    def _resolve_local_ref(self, ref: Optional[str], root: Dict) -> Optional[Dict]:
+        """Resolve a local JSON-pointer reference (``#/a/b/c``) against ``root``.
+
+        Returns the referenced object, or ``None`` for anything we cannot
+        safely resolve in-document: external/URL refs, relative-file refs,
+        missing targets, or a target that is not a mapping. Returning None
+        keeps the caller on the safe path (skip, no fabricated change)."""
+        if not isinstance(ref, str) or not ref.startswith("#/"):
+            return None
+        node: Any = root
+        for raw in ref[2:].split("/"):
+            # JSON-pointer unescape: ~1 -> "/", ~0 -> "~".
+            token = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(node, dict) and token in node:
+                node = node[token]
+            else:
+                return None
+        return node if isinstance(node, dict) else None
+
     def _compare_schema_deep(self, path: str, old_schema: Dict, new_schema: Dict, required_fields: Optional[Set[str]] = None):
         """Deep comparison of schemas including nested objects."""
         # Guard against None schemas
@@ -378,9 +407,40 @@ class OpenAPIDiffEngine:
         if new_schema is None:
             new_schema = {}
 
-        # Handle references
-        if "$ref" in old_schema or "$ref" in new_schema:
-            # TODO: Resolve references properly
+        # Handle references (LED-1591). Component schemas are already deep-
+        # compared in _compare_schemas, so the goal here is to catch changes
+        # behind a reference at THIS path without double-counting:
+        #   - both sides $ref the SAME target  -> nothing (covered already)
+        #   - both sides $ref DIFFERENT targets -> resolve both and recurse
+        #     (an identical-structure rename yields no change; a real
+        #      structural diff surfaces here)
+        #   - exactly one side $ref            -> resolve it, recurse vs inline
+        #   - unresolvable (external/URL/missing) -> skip safely
+        old_ref = old_schema.get("$ref")
+        new_ref = new_schema.get("$ref")
+        if old_ref or new_ref:
+            if old_ref and new_ref and old_ref == new_ref:
+                return
+            seen_key = (old_ref or "", new_ref or "")
+            if seen_key in self._ref_stack:
+                return  # cycle on the current descent path
+            resolved_old = (
+                self._resolve_local_ref(old_ref, self._old_root)
+                if old_ref else old_schema
+            )
+            resolved_new = (
+                self._resolve_local_ref(new_ref, self._new_root)
+                if new_ref else new_schema
+            )
+            # A referenced side we cannot resolve (external URL, missing
+            # target): skip rather than fabricate a change.
+            if (old_ref and resolved_old is None) or (new_ref and resolved_new is None):
+                return
+            self._ref_stack.add(seen_key)
+            try:
+                self._compare_schema_deep(path, resolved_old, resolved_new, required_fields)
+            finally:
+                self._ref_stack.discard(seen_key)
             return
 
         # Compare types
