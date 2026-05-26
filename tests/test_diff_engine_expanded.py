@@ -836,5 +836,67 @@ class TestRefResolution(unittest.TestCase):
         self.assertIsInstance(changes, list)
 
 
+class TestMalformedSpecHardening(unittest.TestCase):
+    """The engine must degrade gracefully on structurally-malformed specs
+    rather than crashing the GitHub Action with an AttributeError. A spec is
+    user-supplied input; a crash is a worse failure than a partial diff.
+
+    Per OpenAPI, `paths`, the path-item method map, and `responses` are all
+    objects (maps). Real-world specs (hand-edited, generated, truncated) put
+    lists or scalars there. `.keys()` on a list raises AttributeError, which
+    previously aborted the whole run.
+    """
+
+    def test_paths_as_list_does_not_crash(self):
+        bad = _base_spec(paths=[{"/x": {}}])
+        good = _base_spec(paths={"/x": {"get": {}}})
+        # Both directions must be safe.
+        self.assertIsInstance(_diff(bad, good), list)
+        self.assertIsInstance(_diff(good, bad), list)
+
+    def test_methods_as_list_does_not_crash(self):
+        bad = _base_spec(paths={"/x": ["get", "post"]})
+        good = _base_spec(paths={"/x": {"get": {}}})
+        self.assertIsInstance(_diff(bad, good), list)
+        self.assertIsInstance(_diff(good, bad), list)
+
+    def test_responses_as_list_does_not_crash(self):
+        bad = _base_spec(paths={"/x": {"get": {"responses": [200, 404]}}})
+        good = _base_spec(paths={"/x": {"get": {"responses": {"200": {}}}}})
+        self.assertIsInstance(_diff(bad, good), list)
+        self.assertIsInstance(_diff(good, bad), list)
+
+    def test_response_item_and_content_non_dict_does_not_crash(self):
+        # A response code mapping to a non-dict, and a content node that's a list.
+        bad = _base_spec(paths={"/x": {"get": {"responses": {"200": "OK"}}}})
+        bad_content = _base_spec(paths={"/x": {"get": {"responses": {"200": {"content": ["application/json"]}}}}})
+        good = _base_spec(paths={"/x": {"get": {"responses": {"200": {"content": {"application/json": {"schema": {"type": "object"}}}}}}}})
+        self.assertIsInstance(_diff(bad, good), list)
+        self.assertIsInstance(_diff(bad_content, good), list)
+
+    def test_request_body_content_as_list_does_not_crash(self):
+        bad = _base_spec(paths={"/x": {"post": {"requestBody": {"content": ["application/json"]}}}})
+        good = _base_spec(paths={"/x": {"post": {"requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}}}}})
+        self.assertIsInstance(_diff(bad, good), list)
+        self.assertIsInstance(_diff(good, bad), list)
+
+    def test_malformed_does_not_suppress_real_diff(self):
+        """Guarding one malformed endpoint must not blind the engine to a real
+        breaking change on a well-formed endpoint in the same spec."""
+        old = _base_spec(paths={
+            "/bad": [1, 2, 3],                       # malformed — ignored
+            "/good": {"get": {}, "post": {}},        # well-formed
+        })
+        new = _base_spec(paths={
+            "/bad": [1, 2, 3],
+            "/good": {"get": {}},                    # post removed -> breaking
+        })
+        breaking = [c for c in _diff(old, new) if c.is_breaking]
+        self.assertTrue(
+            any(c.type == ChangeType.METHOD_REMOVED for c in breaking),
+            f"real METHOD_REMOVED on /good must survive the malformed /bad guard, got {_types(_diff(old, new))}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
