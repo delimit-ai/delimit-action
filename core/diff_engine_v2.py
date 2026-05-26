@@ -94,12 +94,24 @@ class OpenAPIDiffEngine:
         # Compare paths
         self._compare_paths(old_spec.get("paths", {}), new_spec.get("paths", {}))
         
-        # Compare components/schemas
+        # Compare components/schemas (OpenAPI 3.x)
+        _old_components = old_spec.get("components", {})
+        _new_components = new_spec.get("components", {})
         self._compare_schemas(
-            old_spec.get("components", {}).get("schemas", {}),
-            new_spec.get("components", {}).get("schemas", {})
+            _old_components.get("schemas", {}) if isinstance(_old_components, dict) else {},
+            _new_components.get("schemas", {}) if isinstance(_new_components, dict) else {},
         )
-        
+
+        # Compare top-level definitions (Swagger 2.0). v2 stores schemas here,
+        # not under components/schemas; without this a breaking change inside a
+        # v2 definition — and behind a #/definitions/X ref — is missed entirely
+        # (the ref's same-target rule defers to this comparison).
+        self._compare_schemas(
+            old_spec.get("definitions", {}),
+            new_spec.get("definitions", {}),
+            path_prefix="#/definitions",
+        )
+
         # Compare security schemes
         self._compare_security(
             old_spec.get("components", {}).get("securitySchemes", {}),
@@ -603,22 +615,33 @@ class OpenAPIDiffEngine:
                 message=f"Enum value '{value}' added at {path}"
             ))
     
-    def _compare_schemas(self, old_schemas: Dict, new_schemas: Dict):
-        """Compare component schemas."""
+    def _compare_schemas(self, old_schemas: Dict, new_schemas: Dict,
+                         path_prefix: str = "#/components/schemas"):
+        """Compare a named-schema map.
+
+        `path_prefix` is the JSON-pointer root of the map so reported paths
+        match the ref scheme: "#/components/schemas" for OpenAPI 3.x and
+        "#/definitions" for Swagger 2.0.
+        """
+        # Defend against malformed specs where the schema map is not a dict.
+        if not isinstance(old_schemas, dict):
+            old_schemas = {}
+        if not isinstance(new_schemas, dict):
+            new_schemas = {}
         # Schema removal is breaking if referenced
         for schema_name in set(old_schemas.keys()) - set(new_schemas.keys()):
             self.changes.append(Change(
                 type=ChangeType.FIELD_REMOVED,
-                path=f"#/components/schemas/{schema_name}",
+                path=f"{path_prefix}/{schema_name}",
                 details={"schema": schema_name},
                 severity="medium",
                 message=f"Schema '{schema_name}' removed"
             ))
-        
+
         # Compare existing schemas
         for schema_name in set(old_schemas.keys()) & set(new_schemas.keys()):
             self._compare_schema_deep(
-                f"#/components/schemas/{schema_name}",
+                f"{path_prefix}/{schema_name}",
                 old_schemas[schema_name],
                 new_schemas[schema_name]
             )
