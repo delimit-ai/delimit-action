@@ -606,8 +606,10 @@ class OpenAPIDiffEngine:
                     path=f"{path}.{prop}",
                     details={
                         "field": prop,
-                        "was_required": was_required,
-                        "context": context,
+                        # The Evidence model requires every details value to be
+                        # a string; coerce bool/None at the producer (LED-1600).
+                        "was_required": str(was_required).lower(),
+                        "context": context or "",
                     },
                     severity="high" if is_breaking_removal else "low",
                     message=(
@@ -626,7 +628,7 @@ class OpenAPIDiffEngine:
                     self.changes.append(Change(
                         type=ChangeType.REQUIRED_FIELD_ADDED,
                         path=f"{path}.{prop}",
-                        details={"field": prop, "context": context},
+                        details={"field": prop, "context": context or ""},
                         severity="high" if is_breaking_add else "low",
                         message=(
                             f"New required field '{prop}' added at {path}"
@@ -643,7 +645,7 @@ class OpenAPIDiffEngine:
                     self.changes.append(Change(
                         type=ChangeType.REQUIRED_FIELD_ADDED,
                         path=f"{path}.{prop}",
-                        details={"field": prop, "context": context, "was_optional": True},
+                        details={"field": prop, "context": context or "", "was_optional": "true"},
                         severity="high" if is_breaking_tighten else "low",
                         message=(
                             f"Field '{prop}' changed from optional to required "
@@ -664,7 +666,7 @@ class OpenAPIDiffEngine:
                     self.changes.append(Change(
                         type=ChangeType.FIELD_REQUIREMENT_RELAXED,
                         path=f"{path}.{prop}",
-                        details={"field": prop, "context": context},
+                        details={"field": prop, "context": context or ""},
                         severity="high" if is_breaking_relax else "low",
                         message=(
                             f"Field '{prop}' changed from required to optional "
@@ -682,7 +684,7 @@ class OpenAPIDiffEngine:
                     self.changes.append(Change(
                         type=ChangeType.OPTIONAL_FIELD_ADDED,
                         path=f"{path}.{prop}",
-                        details={"field": prop, "context": context},
+                        details={"field": prop, "context": context or ""},
                         severity="low",
                         message=f"Optional field '{prop}' added at {path}",
                         context=context,
