@@ -687,6 +687,9 @@ class TestBreakingTypeCompleteness(unittest.TestCase):
         ChangeType.SECURITY_SCOPE_REMOVED,
         ChangeType.MAX_LENGTH_DECREASED,
         ChangeType.MIN_LENGTH_INCREASED,
+        # LED-1600: required->optional. Breaking by default (no context) and in
+        # a response context; non-breaking only in a request context.
+        ChangeType.FIELD_REQUIREMENT_RELAXED,
     }
 
     EXPECTED_NON_BREAKING = {
@@ -713,8 +716,14 @@ class TestBreakingTypeCompleteness(unittest.TestCase):
             self.assertFalse(change.is_breaking, f"{ct.value} should NOT be breaking")
 
     def test_total_enum_count(self):
-        """Verify total ChangeType enum has exactly 27 values (17 breaking + 10 non-breaking)."""
-        self.assertEqual(len(ChangeType), 27)
+        """Verify total ChangeType enum count.
+
+        LED-1600 added ONE new type (FIELD_REQUIREMENT_RELAXED, required->
+        optional) to close the silent under-classification of that change.
+        Prior canon pinned 27; it is now 28. No existing value was renamed or
+        removed.
+        """
+        self.assertEqual(len(ChangeType), 28)
 
 
 class TestRefResolution(unittest.TestCase):

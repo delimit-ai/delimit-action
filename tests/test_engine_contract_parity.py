@@ -40,6 +40,29 @@ def _v2(definitions, paths=None):
 _REF_PATH = {"/u": {"get": {"responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/U"}}}}}}}}
 _V2_REF_PATH = {"/u": {"get": {"responses": {"200": {"schema": {"$ref": "#/definitions/U"}}}}}}
 
+
+def _resp_obj(props, required=None):
+    """An OpenAPI 3.x spec with a single GET whose 200 response is an inline
+    object schema. Used for LED-1600 request/response-context contract cases."""
+    schema = {"type": "object", "properties": props}
+    if required is not None:
+        schema["required"] = required
+    return {"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
+            "paths": {"/u": {"get": {"responses": {"200": {"description": "ok",
+                "content": {"application/json": {"schema": schema}}}}}}}}
+
+
+def _req_obj(props, required=None):
+    """An OpenAPI 3.x spec with a single POST whose requestBody is an inline
+    object schema. Used for LED-1600 request-context contract cases."""
+    schema = {"type": "object", "properties": props}
+    if required is not None:
+        schema["required"] = required
+    return {"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
+            "paths": {"/u": {"post": {
+                "requestBody": {"content": {"application/json": {"schema": schema}}},
+                "responses": {"200": {"description": "ok"}}}}}}
+
 # name -> (old_spec, new_spec, expected sorted breaking [(type, path), ...])
 CONTRACT = {
     "endpoint_removed": (
@@ -73,6 +96,40 @@ CONTRACT = {
         {"openapi": "3.0.3", "info": {}, "paths": [1, 2]},
         _v3({}, {"/a": {"get": {}}}),
         [],
+    ),
+
+    # ── LED-1600: request/response-context-aware severity ──────────────
+    # A response-field removal (optional) is breaking; both engines must
+    # produce the same breaking signature.
+    "led1600_response_optional_field_removed_is_breaking": (
+        _resp_obj({"id": {"type": "string"}, "extra": {"type": "string"}}),
+        _resp_obj({"id": {"type": "string"}}),
+        [("field_removed", "/u:GET:200.extra")],
+    ),
+    # A request-field removal is NON-breaking — empty breaking signature.
+    "led1600_request_field_removed_not_breaking": (
+        _req_obj({"id": {"type": "string"}, "extra": {"type": "string"}}),
+        _req_obj({"id": {"type": "string"}}),
+        [],
+    ),
+    # Adding a new required REQUEST field is breaking.
+    "led1600_request_required_field_added_is_breaking": (
+        _req_obj({"id": {"type": "string"}}, ["id"]),
+        _req_obj({"id": {"type": "string"}, "tok": {"type": "string"}}, ["id", "tok"]),
+        [("required_field_added", "/u:POST:request.tok")],
+    ),
+    # Adding a new required RESPONSE field is NON-breaking.
+    "led1600_response_required_field_added_not_breaking": (
+        _resp_obj({"id": {"type": "string"}}, ["id"]),
+        _resp_obj({"id": {"type": "string"}, "add": {"type": "string"}}, ["id", "add"]),
+        [],
+    ),
+    # Making a required RESPONSE field optional is breaking (was undetected
+    # before LED-1600).
+    "led1600_response_required_to_optional_is_breaking": (
+        _resp_obj({"id": {"type": "string"}}, ["id"]),
+        _resp_obj({"id": {"type": "string"}}, []),
+        [("field_requirement_relaxed", "/u:GET:200.id")],
     ),
 }
 

@@ -26,6 +26,16 @@ class ChangeType(Enum):
     SECURITY_SCOPE_REMOVED = "security_scope_removed"
     MAX_LENGTH_DECREASED = "max_length_decreased"
     MIN_LENGTH_INCREASED = "min_length_increased"
+    # LED-1600: a field that was REQUIRED becoming OPTIONAL. In a RESPONSE this
+    # is BREAKING — consumers can no longer rely on the field always being
+    # present. In a REQUEST it is non-breaking (the server relaxes what it
+    # demands). Direction is resolved by Change.context, not by the type alone.
+    # NOTE (LOUD): this is the ONE new ChangeType added for LED-1600. Prior
+    # canon pinned the enum at 27; it is now 28. No existing value was renamed
+    # or removed (the four-corner add/remove/required-add cases were already
+    # covered); required->optional simply had NO representation before, which
+    # is exactly the silent-leak this LED closes.
+    FIELD_REQUIREMENT_RELAXED = "field_requirement_relaxed"
 
     # Non-breaking changes
     ENDPOINT_ADDED = "endpoint_added"
@@ -39,6 +49,28 @@ class ChangeType(Enum):
     DEPRECATED_ADDED = "deprecated_added"
     DEFAULT_CHANGED = "default_changed"
 
+# Change types that are ALWAYS breaking, independent of request/response
+# context. The context-sensitive types (field add/remove/requirement) are
+# handled separately in Change.is_breaking.
+_ALWAYS_BREAKING = frozenset({
+    ChangeType.ENDPOINT_REMOVED,
+    ChangeType.METHOD_REMOVED,
+    ChangeType.REQUIRED_PARAM_ADDED,
+    ChangeType.PARAM_REMOVED,
+    ChangeType.RESPONSE_REMOVED,
+    ChangeType.TYPE_CHANGED,
+    ChangeType.FORMAT_CHANGED,
+    ChangeType.ENUM_VALUE_REMOVED,
+    ChangeType.PARAM_TYPE_CHANGED,
+    ChangeType.PARAM_REQUIRED_CHANGED,
+    ChangeType.RESPONSE_TYPE_CHANGED,
+    ChangeType.SECURITY_REMOVED,
+    ChangeType.SECURITY_SCOPE_REMOVED,
+    ChangeType.MAX_LENGTH_DECREASED,
+    ChangeType.MIN_LENGTH_INCREASED,
+})
+
+
 @dataclass
 class Change:
     type: ChangeType
@@ -46,28 +78,47 @@ class Change:
     details: Dict[str, Any]
     severity: str  # high, medium, low
     message: str
-    
+    # LED-1600: request/response context. The breaking-ness of a FIELD change
+    # flips with direction (see is_breaking). Values: "request", "response",
+    # or None when the engine cannot determine direction (e.g. a bare
+    # component-schema comparison, or a hand-constructed Change). When None,
+    # is_breaking falls back to the conservative, direction-agnostic verdict
+    # that the engine has always produced — so existing callers and stored
+    # Change objects are unaffected. This field is ADDITIVE (defaulted), so the
+    # public construction signature and the diff return shape are unchanged.
+    context: Optional[str] = None
+
     @property
     def is_breaking(self) -> bool:
-        return self.type in [
-            ChangeType.ENDPOINT_REMOVED,
-            ChangeType.METHOD_REMOVED,
-            ChangeType.REQUIRED_PARAM_ADDED,
-            ChangeType.PARAM_REMOVED,
-            ChangeType.RESPONSE_REMOVED,
-            ChangeType.REQUIRED_FIELD_ADDED,
-            ChangeType.FIELD_REMOVED,
-            ChangeType.TYPE_CHANGED,
-            ChangeType.FORMAT_CHANGED,
-            ChangeType.ENUM_VALUE_REMOVED,
-            ChangeType.PARAM_TYPE_CHANGED,
-            ChangeType.PARAM_REQUIRED_CHANGED,
-            ChangeType.RESPONSE_TYPE_CHANGED,
-            ChangeType.SECURITY_REMOVED,
-            ChangeType.SECURITY_SCOPE_REMOVED,
-            ChangeType.MAX_LENGTH_DECREASED,
-            ChangeType.MIN_LENGTH_INCREASED,
-        ]
+        ct = self.type
+
+        if ct in _ALWAYS_BREAKING:
+            return True
+
+        # ── LED-1600: context-aware classification ──────────────────────
+        # REQUIRED_FIELD_ADDED:
+        #   REQUEST  -> breaking (clients must now send it)
+        #   RESPONSE -> non-breaking (server returns MORE; consumers ignore it)
+        #   unknown  -> breaking (conservative: never silently downgrade)
+        if ct == ChangeType.REQUIRED_FIELD_ADDED:
+            return self.context != "response"
+
+        # FIELD_REMOVED:
+        #   RESPONSE -> breaking (consumers lose the field)
+        #   REQUEST  -> non-breaking (server stops requiring/accepting it)
+        #   unknown  -> breaking (conservative; covers component schemas, which
+        #               may back a response, and matches pre-LED-1600 behavior)
+        if ct == ChangeType.FIELD_REMOVED:
+            return self.context != "request"
+
+        # FIELD_REQUIREMENT_RELAXED (required -> optional):
+        #   RESPONSE -> breaking (consumers can no longer rely on its presence)
+        #   REQUEST  -> non-breaking (server demands less)
+        #   unknown  -> breaking (conservative)
+        if ct == ChangeType.FIELD_REQUIREMENT_RELAXED:
+            return self.context != "request"
+
+        return False
 
 class OpenAPIDiffEngine:
     """Advanced diff engine for OpenAPI specifications."""
@@ -371,9 +422,10 @@ class OpenAPIDiffEngine:
                 self._compare_schema_deep(
                     f"{operation_id}:request",
                     old_content[content_type].get("schema", {}),
-                    new_content[content_type].get("schema", {})
+                    new_content[content_type].get("schema", {}),
+                    context="request",
                 )
-    
+
     def _compare_responses(self, operation_id: str, old_responses: Dict, new_responses: Dict):
         """Compare response definitions."""
         # Defend against malformed specs where `responses` is a list.
@@ -411,7 +463,8 @@ class OpenAPIDiffEngine:
                     self._compare_schema_deep(
                         f"{operation_id}:{code}",
                         old_content[content_type].get("schema", {}),
-                        new_content[content_type].get("schema", {})
+                        new_content[content_type].get("schema", {}),
+                        context="response",
                     )
     
     def _resolve_local_ref(self, ref: Optional[str], root: Dict) -> Optional[Dict]:
@@ -433,8 +486,16 @@ class OpenAPIDiffEngine:
                 return None
         return node if isinstance(node, dict) else None
 
-    def _compare_schema_deep(self, path: str, old_schema: Dict, new_schema: Dict, required_fields: Optional[Set[str]] = None):
-        """Deep comparison of schemas including nested objects."""
+    def _compare_schema_deep(self, path: str, old_schema: Dict, new_schema: Dict, required_fields: Optional[Set[str]] = None, context: Optional[str] = None):
+        """Deep comparison of schemas including nested objects.
+
+        ``context`` is the request/response direction ("request" / "response"
+        / None) propagated from the operation entry point. It is threaded
+        through nested objects and arrays so a field change keeps its
+        direction, which LED-1600 uses to classify breaking-ness correctly
+        (a removed RESPONSE field is breaking; a removed REQUEST field is not).
+        Bare component-schema comparisons pass None — the conservative path.
+        """
         # Guard against None schemas
         if old_schema is None:
             old_schema = {}
@@ -472,7 +533,7 @@ class OpenAPIDiffEngine:
                 return
             self._ref_stack.add(seen_key)
             try:
-                self._compare_schema_deep(path, resolved_old, resolved_new, required_fields)
+                self._compare_schema_deep(path, resolved_old, resolved_new, required_fields, context)
             finally:
                 self._ref_stack.discard(seen_key)
             return
@@ -506,33 +567,125 @@ class OpenAPIDiffEngine:
             ))
             return
 
-        # Compare object properties
-        if old_type == "object":
-            old_props = old_schema.get("properties", {})
-            new_props = new_schema.get("properties", {})
-            old_required = set(old_schema.get("required", []))
-            new_required = set(new_schema.get("required", []))
+        # Compare object properties.
+        #
+        # LED-1597: a schema may carry `properties`/`required` WITHOUT an
+        # explicit `type: "object"` (valid JSON Schema; common in OpenAPI 3.1
+        # and in the real EU TED v3 NoticeResponse component reached via a
+        # response $ref). Gating object comparison solely on `type == "object"`
+        # silently skipped all field-level diffing for such schemas. Treat a
+        # schema as an object when it declares object-shaped keys.
+        def _is_object_shaped(s: Any) -> bool:
+            return isinstance(s, dict) and ("properties" in s or "required" in s)
 
-            # Check removed fields
+        is_object = (
+            old_type == "object"
+            or new_type == "object"
+            or _is_object_shaped(old_schema)
+            or _is_object_shaped(new_schema)
+        )
+        if is_object:
+            raw_old_props = old_schema.get("properties", {})
+            raw_new_props = new_schema.get("properties", {})
+            old_props = raw_old_props if isinstance(raw_old_props, dict) else {}
+            new_props = raw_new_props if isinstance(raw_new_props, dict) else {}
+            raw_old_required = old_schema.get("required", [])
+            raw_new_required = new_schema.get("required", [])
+            old_required = set(raw_old_required) if isinstance(raw_old_required, list) else set()
+            new_required = set(raw_new_required) if isinstance(raw_new_required, list) else set()
+
+            # Check removed fields (LED-1597 + LED-1600). Removing a property is
+            # breaking for a RESPONSE (or context-unknown component schema) and
+            # non-breaking for a REQUEST. severity tracks is_breaking so the two
+            # never disagree (the silent-leak guard).
             for prop in set(old_props.keys()) - set(new_props.keys()):
-                if prop in old_required:
-                    self.changes.append(Change(
-                        type=ChangeType.FIELD_REMOVED,
-                        path=f"{path}.{prop}",
-                        details={"field": prop},
-                        severity="high",
-                        message=f"Required field '{prop}' removed at {path}"
-                    ))
+                was_required = prop in old_required
+                is_breaking_removal = context != "request"
+                self.changes.append(Change(
+                    type=ChangeType.FIELD_REMOVED,
+                    path=f"{path}.{prop}",
+                    details={
+                        "field": prop,
+                        "was_required": was_required,
+                        "context": context,
+                    },
+                    severity="high" if is_breaking_removal else "low",
+                    message=(
+                        f"{'Required' if was_required else 'Optional'} field "
+                        f"'{prop}' removed at {path}"
+                        + ("" if is_breaking_removal
+                           else " (request field; non-breaking for clients)")
+                    ),
+                    context=context,
+                ))
 
-            # Check new required fields
+            # Check new required fields (LED-1600 context-aware).
             for prop in new_required - old_required:
                 if prop not in old_props:
+                    is_breaking_add = context != "response"
                     self.changes.append(Change(
                         type=ChangeType.REQUIRED_FIELD_ADDED,
                         path=f"{path}.{prop}",
-                        details={"field": prop},
-                        severity="high",
-                        message=f"New required field '{prop}' added at {path}"
+                        details={"field": prop, "context": context},
+                        severity="high" if is_breaking_add else "low",
+                        message=(
+                            f"New required field '{prop}' added at {path}"
+                            + ("" if is_breaking_add
+                               else " (response field; non-breaking for consumers)")
+                        ),
+                        context=context,
+                    ))
+                else:
+                    # Existing field optional -> required. Breaking for a
+                    # REQUEST. Reuse REQUIRED_FIELD_ADDED (no new type) and mark
+                    # was_optional in details.
+                    is_breaking_tighten = context != "response"
+                    self.changes.append(Change(
+                        type=ChangeType.REQUIRED_FIELD_ADDED,
+                        path=f"{path}.{prop}",
+                        details={"field": prop, "context": context, "was_optional": True},
+                        severity="high" if is_breaking_tighten else "low",
+                        message=(
+                            f"Field '{prop}' changed from optional to required "
+                            f"at {path}"
+                            + ("" if is_breaking_tighten
+                               else " (response field; non-breaking for consumers)")
+                        ),
+                        context=context,
+                    ))
+
+            # LED-1600: a field that WAS required is now OPTIONAL. Breaking for
+            # a RESPONSE (consumers can no longer rely on its presence) — the
+            # silent-leak case previously not detected at all. Non-breaking for
+            # a REQUEST. Only flag fields that still exist.
+            for prop in old_required - new_required:
+                if prop in new_props:
+                    is_breaking_relax = context != "request"
+                    self.changes.append(Change(
+                        type=ChangeType.FIELD_REQUIREMENT_RELAXED,
+                        path=f"{path}.{prop}",
+                        details={"field": prop, "context": context},
+                        severity="high" if is_breaking_relax else "low",
+                        message=(
+                            f"Field '{prop}' changed from required to optional "
+                            f"at {path}"
+                            + (" (response field; consumers can no longer rely "
+                               "on its presence)" if is_breaking_relax
+                               else " (request field; non-breaking)")
+                        ),
+                        context=context,
+                    ))
+
+            # Check new optional fields (additive, non-breaking) — LED-1597.
+            for prop in set(new_props.keys()) - set(old_props.keys()):
+                if prop not in new_required:
+                    self.changes.append(Change(
+                        type=ChangeType.OPTIONAL_FIELD_ADDED,
+                        path=f"{path}.{prop}",
+                        details={"field": prop, "context": context},
+                        severity="low",
+                        message=f"Optional field '{prop}' added at {path}",
+                        context=context,
                     ))
 
             # Recursively compare nested properties
@@ -570,7 +723,8 @@ class OpenAPIDiffEngine:
                     f"{path}.{prop}",
                     old_prop_schema,
                     new_prop_schema,
-                    old_required if prop in old_required else None
+                    old_required if prop in old_required else None,
+                    context,
                 )
 
         # Compare arrays
@@ -579,7 +733,9 @@ class OpenAPIDiffEngine:
                 self._compare_schema_deep(
                     f"{path}[]",
                     old_schema["items"],
-                    new_schema["items"]
+                    new_schema["items"],
+                    None,
+                    context,
                 )
 
         # Compare enums
