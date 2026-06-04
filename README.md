@@ -26,7 +26,7 @@ For the schema and signing methodology behind every report, see [delimit.ai/meth
 
 ## Features
 
-- **Breaking change detection** — catches 27 types of changes (17 breaking, 10 non-breaking) across endpoints, parameters, response schemas, types, enums, security, and constraints
+- **Breaking change detection** — catches 28 types of changes (17 breaking, 11 non-breaking) across endpoints, parameters, response schemas, types, enums, security, and constraints
 - **Semver classification** — deterministic `major` / `minor` / `patch` / `none` bump recommendation with computed next version
 - **Migration guides** — auto-generated step-by-step migration instructions for every breaking change
 - **PR comments** — rich Markdown summary posted directly on your pull request, updated on each push
@@ -96,7 +96,7 @@ When Delimit detects breaking changes, it posts a comment like this:
 >
 > </details>
 
-See the [live demo](https://github.com/delimit-ai/delimit-action-demo/pull/2) — a Users API migration with 23 breaking changes detected across 27 change types, severity badges, and a migration guide.
+See the [live demo](https://github.com/delimit-ai/delimit-action-demo/pull/2) — a Users API migration with 23 breaking changes detected across 28 change types, severity badges, and a migration guide.
 
 ### Advanced: explicit base and head specs
 
@@ -332,6 +332,7 @@ rules:
 | `response_added` | No | A new response status code was added |
 | `optional_field_added` | No | A new optional field was added |
 | `enum_value_added` | No | A new enum value was added |
+| `field_requirement_relaxed` | No | A field's `$ref`'d component schema relaxed a requirement (e.g. a required field became optional) |
 | `description_changed` | No | A description was modified |
 
 ### Default rules
@@ -639,7 +640,7 @@ delimit explain old-api.yaml new-api.yaml --template migration
 
 ## Pricing
 
-The Action itself is free and open source (MIT). The free tier covers public repos with advisory mode, signed attestation, and the full 27-type breaking change classifier.
+The Action itself is free and open source (MIT). The free tier covers public repos with advisory mode, signed attestation, and the full 28-type breaking change classifier.
 
 For teams that want enforcement, governance dashboards, custom policies under multi-model review, and audit-ready trust pages:
 
