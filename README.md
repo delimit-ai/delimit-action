@@ -8,13 +8,22 @@ Delimit runs on every pull request, diffs your OpenAPI spec against the base bra
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![API Governance](https://delimit-ai.github.io/badge/pass.svg)](https://github.com/marketplace/actions/delimit-api-governance)
 
-## See it in action
+## Worked examples
 
-Worked example, real OSS repo, every claim verifiable:
+Real, reproducible merge-gate runs against public API specs:
 
-- **[cal.com v2 API attestation](https://delimit.ai/reports/cal-com-v2-attestation)**: full diff, signed verdict, replayable bundle. Same chain you get on day one.
+- **[OpenAI OpenAPI: a year of AI frontier evolution under a cross-vendor merge gate](https://delimit.ai/reports/openai-openapi-attestation)** — OpenAI (openai/openai-openapi)
+- **[Stripe v1 OpenAPI: 57 days under a merge gate](https://delimit.ai/reports/stripe-openapi-attestation)** — Stripe (stripe/openapi)
+- **[Anthropic API: 76 days under a cross-vendor merge gate](https://delimit.ai/reports/anthropic-api-attestation)** — Anthropic (anthropics/anthropic-sdk-python)
+- **[Twilio v2010 OpenAPI: 55 days under a merge gate](https://delimit.ai/reports/twilio-api-attestation)** — Twilio (twilio/twilio-oai)
+- **[Docusign eSignature v2.1 OpenAPI: 46 days under a merge gate](https://delimit.ai/reports/docusign-esign-attestation)** — Docusign (docusign/OpenAPI-Specifications)
+- **[Supabase Auth OpenAPI: 57 days under a merge gate](https://delimit.ai/reports/supabase-auth-openapi-attestation)** — Supabase Auth (supabase/auth)
+- **[cal.com v2 OpenAPI: 60 days under a merge gate](https://delimit.ai/reports/cal-com-v2-attestation)** — cal.com (calcom/cal.com)
+- **[EU TED v3 procurement API: $ref'd component-schema drift under a merge gate](https://delimit.ai/reports/eu-ted-v3-attestation)** — European Commission (TED v3 Public API)
+- **[Cross-agent handoff: one artifact, four CLIs](https://delimit.ai/reports/cross-agent-handoff)** — Cross-CLI session handoff (worked example)
+- **[delimit-mcp-server (self-attestation): same merge gate, third artifact class](https://delimit.ai/reports/delimit-mcp-server-tdqs)** — delimit-mcp-server (self-attestation)
 
-For the schema and signing methodology behind every report, see [delimit.ai/methodology/mcp-attestation](https://delimit.ai/methodology/mcp-attestation).
+See the full index at [delimit.ai/reports](https://delimit.ai/reports). For the schema and signing methodology behind every report, see [delimit.ai/methodology/mcp-attestation](https://delimit.ai/methodology/mcp-attestation).
 
 ## What it looks like
 
@@ -655,7 +664,7 @@ The action requires no signup. Pro and Premium are managed at [delimit.ai/pricin
 ## Links
 
 - [Delimit CLI on npm](https://www.npmjs.com/package/delimit-cli) - Local development tool
-- [Worked example: cal.com v2](https://delimit.ai/reports/cal-com-v2-attestation) - Full attestation report
+- [Worked examples](https://delimit.ai/reports) - Full attestation reports against public API specs
 - [Methodology](https://delimit.ai/methodology/mcp-attestation) - How signing and replay work
 - [Pricing](https://delimit.ai/pricing) - Free, Pro, Premium, Enterprise
 - [GitHub Repository](https://github.com/delimit-ai/delimit) - Source code and issues
