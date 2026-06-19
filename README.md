@@ -2,7 +2,7 @@
 
 **The merge gate for AI-written code, with signed, replayable attestation on every PR.**
 
-Delimit runs on every pull request, diffs your OpenAPI spec against the base branch, and posts a governance PR comment with breaking changes, semver classification, policy violations, migration guidance, and a Sigstore keyless-signed attestation any reviewer can verify. No API keys, no external services, no config required to get started.
+Delimit runs on every pull request, diffs your OpenAPI spec against the base branch, and posts a governance PR comment with breaking changes, semver classification, policy violations, migration guidance, and a Sigstore keyless-signed attestation any reviewer can verify. On every PR it also runs a zero-config secret scan over the changed files — deterministic, high-precision pattern detection that needs no spec and no config. No API keys, no external services, no config required to get started.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-api-governance)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -35,6 +35,7 @@ See the full index at [delimit.ai/reports](https://delimit.ai/reports). For the 
 
 ## Features
 
+- **Zero-config secret scan (PR safety gate)** — on every pull request, deterministically scans the files changed against the base branch for leaked-secret patterns (private keys, AWS access keys, GitHub tokens, Stripe live keys, Slack tokens, Google API keys, GitLab tokens). No spec, no config required. Files over 1 MB are skipped. Surfaces a job-summary report and `secrets_detected` / `secrets_count` outputs; fails CI on a hit in `enforce` mode (advisory otherwise)
 - **Breaking change detection** — catches 28 types of changes (17 breaking, 11 non-breaking) across endpoints, parameters, response schemas, types, enums, security, and constraints
 - **Semver classification** — deterministic `major` / `minor` / `patch` / `none` bump recommendation with computed next version
 - **Migration guides** — auto-generated step-by-step migration instructions for every breaking change
@@ -240,6 +241,8 @@ The action needs whatever toolchain the generator depends on to already be insta
 | `semver_bump` | `string` | Recommended version bump: `major`, `minor`, `patch`, or `none`. |
 | `next_version` | `string` | Computed next version string (e.g., `2.0.0`). |
 | `report` | `string` | Full JSON report of all detected changes, violations, and semver data. |
+| `secrets_detected` | `string` | `"true"` if a leaked-secret pattern was found in any changed file, `"false"` otherwise. |
+| `secrets_count` | `string` | Number of changed files containing a leaked-secret pattern. |
 
 ### Using outputs in subsequent steps
 
