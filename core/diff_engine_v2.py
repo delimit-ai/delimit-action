@@ -46,7 +46,28 @@ class Change:
     details: Dict[str, Any]
     severity: str  # high, medium, low
     message: str
-    
+
+    def __post_init__(self):
+        # LED-2294: every Change.details value MUST be a str. The downstream
+        # Evidence / Violation pydantic models (schemas/evidence.py) declare
+        # Dict[str, str], so a non-str value crashes validation
+        # (execution_failure -> misclassification). Non-str producers existed at
+        # several sites: PARAM_REQUIRED_CHANGED (bool), the maxLength/minLength
+        # constraint changes (int / None), and DEFAULT_CHANGED (any JSON type).
+        # Coerce at this single choke point so every producer site — current and
+        # future — is covered, rather than hand-patching each call. Booleans
+        # render lowercase ("true"/"false"); None becomes "".
+        if self.details:
+            self.details = {
+                k: (
+                    "" if v is None
+                    else ("true" if v else "false") if isinstance(v, bool)
+                    else v if isinstance(v, str)
+                    else str(v)
+                )
+                for k, v in self.details.items()
+            }
+
     @property
     def is_breaking(self) -> bool:
         return self.type in [

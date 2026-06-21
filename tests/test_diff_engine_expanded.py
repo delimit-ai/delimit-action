@@ -129,6 +129,63 @@ class TestParamRequiredChanged(unittest.TestCase):
         changes = _diff(*self._specs(True, True))
         self.assertNotIn(ChangeType.PARAM_REQUIRED_CHANGED, _types(changes))
 
+    def test_details_survive_evidence_model(self):
+        """LED-2294: old_required/new_required are bools at the producer; they
+        MUST be coerced to str so the change survives the Dict[str, str]
+        Evidence/Violation models (a bool used to crash validation ->
+        execution_failure misclassification). Runs the real end-to-end diff."""
+        changes = _diff(*self._specs(False, True))
+        prc = [c for c in changes if c.type == ChangeType.PARAM_REQUIRED_CHANGED][0]
+        self.assertTrue(
+            all(isinstance(v, str) for v in prc.details.values()),
+            f"non-str details value reaches Evidence: {prc.details}",
+        )
+        self.assertEqual(prc.details["old_required"], "false")
+        self.assertEqual(prc.details["new_required"], "true")
+        from schemas.evidence import Violation
+        Violation(
+            rule="param_required_changed", severity="high",
+            message=prc.message, details=prc.details,
+        )
+
+
+# ===================================================================
+# LED-2294: Change.details str-coercion choke point (full producer hardening)
+# ===================================================================
+
+class TestChangeDetailsCoercion(unittest.TestCase):
+    """Change.__post_init__ coerces every details value to str so the downstream
+    Dict[str, str] Evidence/Violation models never crash on a non-str — bool
+    (PARAM_REQUIRED_CHANGED), int/None (maxLength/minLength constraint changes),
+    or any-typed DEFAULT_CHANGED. One choke point, covering current + future
+    producer sites."""
+
+    def test_bool_to_lowercase_str(self):
+        c = Change(type=ChangeType.PARAM_REQUIRED_CHANGED, path="/x", severity="high",
+                   message="m", details={"old_required": False, "new_required": True})
+        self.assertEqual(c.details, {"old_required": "false", "new_required": "true"})
+
+    def test_int_and_none_coerced(self):
+        c = Change(type=ChangeType.MAX_LENGTH_DECREASED, path="/x", severity="high",
+                   message="m", details={"constraint": "maxLength", "old_value": None, "new_value": 5})
+        self.assertEqual(c.details, {"constraint": "maxLength", "old_value": "", "new_value": "5"})
+        self.assertTrue(all(isinstance(v, str) for v in c.details.values()))
+
+    def test_any_typed_default_coerced(self):
+        c = Change(type=ChangeType.DEFAULT_CHANGED, path="/x", severity="low",
+                   message="m", details={"old_default": 10, "new_default": False})
+        self.assertEqual(c.details, {"old_default": "10", "new_default": "false"})
+
+    def test_str_values_passthrough(self):
+        c = Change(type=ChangeType.FIELD_REMOVED, path="/x", severity="medium",
+                   message="m", details={"schema": "User"})
+        self.assertEqual(c.details, {"schema": "User"})
+
+    def test_empty_details_ok(self):
+        c = Change(type=ChangeType.FIELD_REMOVED, path="/x", severity="low",
+                   message="m", details={})
+        self.assertEqual(c.details, {})
+
 
 # ===================================================================
 # 3. RESPONSE_TYPE_CHANGED
@@ -658,8 +715,10 @@ class TestDefaultChanged(unittest.TestCase):
         })
         changes = _diff(old, new)
         dc = [c for c in changes if c.type == ChangeType.DEFAULT_CHANGED][0]
-        self.assertEqual(dc.details["old_default"], 1)
-        self.assertEqual(dc.details["new_default"], 0)
+        # LED-2294: details values are coerced to str (Dict[str, str] contract)
+        # so they survive the downstream Evidence model. Previously raw ints.
+        self.assertEqual(dc.details["old_default"], "1")
+        self.assertEqual(dc.details["new_default"], "0")
 
 
 # ===================================================================
