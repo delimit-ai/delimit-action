@@ -84,6 +84,12 @@ outputs:
   report:
     description: 'JSON report of all detected changes'
     value: ${{ steps.validate.outputs.report }}
+  secrets_detected:
+    description: 'Whether a leaked-secret pattern was found in changed files (true/false)'
+    value: ${{ steps.secrets.outputs.secrets_detected }}
+  secrets_count:
+    description: 'Number of changed files containing a leaked-secret pattern'
+    value: ${{ steps.secrets.outputs.secrets_count }}
   attestation_id:
     description: 'Stable identifier for the signed governance attestation (16-char prefix of sha256(payload)). Empty if attestation was skipped.'
     value: ${{ steps.attest.outputs.attestation_id }}
@@ -160,6 +166,49 @@ runs:
           echo "::error::Provide either 'spec' (simple) or both 'old_spec' and 'new_spec' (advanced)."
           exit 1
         fi
+      shell: bash
+
+    - name: Delimit secret scan (zero-config PR safety)
+      id: secrets
+      if: ${{ github.event_name == 'pull_request' }}
+      run: |
+        set +e
+        BASE_SHA="${{ github.event.pull_request.base.sha }}"
+        git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
+        FILES=$(git diff --name-only "$BASE_SHA"...HEAD 2>/dev/null)
+        [ -z "$FILES" ] && FILES=$(git diff --name-only HEAD~1 2>/dev/null)
+        PAT='-----BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82}|sk_live_[A-Za-z0-9]{24,}|xox[baprs]-[A-Za-z0-9-]{10,48}|AIza[0-9A-Za-z_-]{35}|glpat-[A-Za-z0-9_-]{20}'
+        FOUND=0
+        LINES=""
+        for f in $FILES; do
+          [ -f "$f" ] || continue
+          SZ=$(wc -c < "$f" 2>/dev/null || echo 0)
+          [ "$SZ" -gt 1048576 ] && continue
+          if grep -qIE -e "$PAT" "$f" 2>/dev/null; then
+            LINES="${LINES}- ${f}: leaked-secret pattern detected"$'\n'
+            FOUND=$((FOUND+1))
+          fi
+        done
+        {
+          echo "## Delimit secret scan (deterministic, high-precision)"
+          echo ""
+          if [ "$FOUND" -gt 0 ]; then
+            echo "**${FOUND} changed file(s) contain a leaked-secret pattern:**"
+            echo ""
+            printf '%s' "$LINES"
+          else
+            echo "No leaked secrets in changed files."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "secrets_count=${FOUND}" >> "$GITHUB_OUTPUT"
+        if [ "$FOUND" -gt 0 ]; then echo "secrets_detected=true" >> "$GITHUB_OUTPUT"; else echo "secrets_detected=false" >> "$GITHUB_OUTPUT"; fi
+        MODE="${{ inputs.mode }}"
+        FAILB="${{ inputs.fail_on_breaking }}"
+        if [ "$FOUND" -gt 0 ] && { [ "$MODE" = "enforce" ] || [ "$FAILB" = "true" ]; }; then
+          echo "::error::Delimit: ${FOUND} leaked secret(s) detected in changed files (enforce mode)."
+          exit 1
+        fi
+        exit 0
       shell: bash
 
     - name: Run Delimit validation

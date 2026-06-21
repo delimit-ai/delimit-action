@@ -177,6 +177,214 @@ class TestAdditionalProperties:
         assert changes[0].type == JSONSchemaChangeType.ADDITIONAL_PROPERTIES_LOOSENED
         assert not changes[0].is_breaking
 
+    # The "long-missed class" oasdiff v1.15.3 closed (2026-05-14): typed maps —
+    # `Dict[str, Model]`-shaped responses (FastAPI/Pydantic emit
+    # `additionalProperties: <schema>`). Required-field add/remove inside the
+    # value schema must recurse, otherwise breaking changes are silently invisible.
+    def test_required_added_inside_additional_properties_value_is_breaking(self):
+        old = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
+                "required": ["id"],
+            },
+        }
+        new = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
+                "required": ["id", "name"],
+            },
+        }
+        changes = _diff(old, new)
+        types = _types(changes)
+        assert JSONSchemaChangeType.REQUIRED_ADDED in types
+        breaking = [c for c in changes if c.type == JSONSchemaChangeType.REQUIRED_ADDED]
+        assert breaking and breaking[0].is_breaking
+        assert "additionalProperties" in breaking[0].path
+
+    def test_required_removed_inside_additional_properties_value_is_non_breaking(self):
+        old = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
+                "required": ["id", "name"],
+            },
+        }
+        new = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
+                "required": ["id"],
+            },
+        }
+        types = _types(_diff(old, new))
+        assert JSONSchemaChangeType.REQUIRED_REMOVED in types
+
+    def test_property_removed_inside_additional_properties_value_is_breaking(self):
+        old = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "deprecated_field": {"type": "string"}},
+            },
+        }
+        new = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+            },
+        }
+        types = _types(_diff(old, new))
+        assert JSONSchemaChangeType.PROPERTY_REMOVED in types
+
+    def test_type_widened_inside_additional_properties_value_is_non_breaking(self):
+        old = {"type": "object", "additionalProperties": {"type": "integer"}}
+        new = {"type": "object", "additionalProperties": {"type": "number"}}
+        types = _types(_diff(old, new))
+        assert JSONSchemaChangeType.TYPE_WIDENED in types
+
+
+# ----------------------------------------------------------------------
+# Cycle guard (LED-1395) — self-referential schemas must terminate
+# without recursing forever. Mirrors oasdiff v1.15.3's cycle protection.
+# ----------------------------------------------------------------------
+
+import sys
+
+
+class TestCycleGuard:
+    def test_self_referential_via_ref_does_not_stack_overflow(self):
+        """Tree node where children: items: $ref to self. Without the
+        cycle guard, _compare_schema → _compare_items → _compare_schema
+        recursion would stack-overflow."""
+        schema = {
+            "$ref": "#/definitions/Tree",
+            "definitions": {
+                "Tree": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "children": {
+                            "type": "array",
+                            "items": {"$ref": "#/definitions/Tree"},
+                        },
+                    },
+                }
+            },
+        }
+        # Identical schemas — no changes, but must terminate.
+        recursion_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(200)
+            changes = _diff(schema, schema)
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+        assert changes == []
+
+    def test_self_referential_added_required_inside_recursive_node_is_breaking(self):
+        """Tree node where a recursive $ref child gains a new required
+        field. The cycle guard must let the first visit detect the
+        change, then short-circuit on re-entry."""
+        old = {
+            "$ref": "#/definitions/Tree",
+            "definitions": {
+                "Tree": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "child": {"$ref": "#/definitions/Tree"},
+                    },
+                    "required": ["id"],
+                }
+            },
+        }
+        new = {
+            "$ref": "#/definitions/Tree",
+            "definitions": {
+                "Tree": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "child": {"$ref": "#/definitions/Tree"},
+                    },
+                    "required": ["id", "child"],
+                }
+            },
+        }
+        recursion_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(200)
+            changes = _diff(old, new)
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+        types = _types(changes)
+        assert JSONSchemaChangeType.REQUIRED_ADDED in types
+
+    def test_mutually_recursive_definitions_terminate(self):
+        """Two definitions that reference each other (A.b → B, B.a → A).
+        Different cycle shape than self-reference."""
+        schema = {
+            "$ref": "#/definitions/A",
+            "definitions": {
+                "A": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}, "b": {"$ref": "#/definitions/B"}},
+                },
+                "B": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}, "a": {"$ref": "#/definitions/A"}},
+                },
+            },
+        }
+        recursion_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(200)
+            changes = _diff(schema, schema)
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+        assert changes == []
+
+    def test_self_referential_via_additional_properties_terminates(self):
+        """LED-1393's new recursion path (additionalProperties) must
+        also be cycle-guarded — graph node where additionalProperties
+        points back to the same node type via $ref."""
+        schema = {
+            "$ref": "#/definitions/Graph",
+            "definitions": {
+                "Graph": {
+                    "type": "object",
+                    "additionalProperties": {"$ref": "#/definitions/Graph"},
+                }
+            },
+        }
+        recursion_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(200)
+            changes = _diff(schema, schema)
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+        assert changes == []
+
+    def test_seen_pairs_resets_between_compare_calls(self):
+        """The cycle-guard set must reset on each compare() call so
+        sequential diffs don't suppress real changes."""
+        engine = JSONSchemaDiffEngine()
+        schema_a = {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}
+        schema_b = {"type": "object", "properties": {"id": {"type": "string"}}, "required": []}
+        # First diff: required-removed
+        c1 = engine.compare(schema_a, schema_b)
+        assert any(c.type == JSONSchemaChangeType.REQUIRED_REMOVED for c in c1)
+        # Second diff with the SAME engine instance — would silently be
+        # zero changes if the seen-set wasn't reset.
+        c2 = engine.compare(schema_a, schema_b)
+        assert any(c.type == JSONSchemaChangeType.REQUIRED_REMOVED for c in c2)
+
 
 # ----------------------------------------------------------------------
 # pattern
