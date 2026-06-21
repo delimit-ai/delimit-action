@@ -118,7 +118,18 @@ class Change:
 class OpenAPIDiffEngine:
     """Advanced diff engine for OpenAPI specifications."""
     
-    def __init__(self):
+    def __init__(self, context_aware: bool = False):
+        # LED-1600 rollout gate: context-aware (direction-aware) breaking
+        # severity is OPT-IN and OFF BY DEFAULT, so every existing caller —
+        # and the public Action's v1 — keeps the conservative pre-LED-1600
+        # verdicts until a consumer explicitly opts in. When False, no
+        # request/response context is threaded (so is_breaking falls back to
+        # the conservative direction-agnostic verdict) AND the new
+        # FIELD_REQUIREMENT_RELAXED / optional->required schema-field detections
+        # are suppressed, making the output byte-for-byte equivalent to the
+        # pre-LED-1600 engine. Flipping the default is a future major-version
+        # decision, never a silent v1 flip.
+        self.context_aware = context_aware
         self.changes: List[Change] = []
         # LED-1588: fail-open skips (unresolvable refs, malformed nodes)
         self.advisories: List[Dict[str, Any]] = []
@@ -127,6 +138,12 @@ class OpenAPIDiffEngine:
         self._new_root: Dict = {}
         # (old_ref, new_ref) pairs on the current descent path — cycle guard.
         self._ref_stack: Set[tuple] = set()
+
+    def _ctx(self, direction: Optional[str]) -> Optional[str]:
+        """Return the request/response direction only when context-aware
+        severity is enabled; otherwise None (-> conservative is_breaking).
+        The single gate that keeps direction-aware downgrades opt-in."""
+        return direction if self.context_aware else None
 
     def _add_advisory(self, kind: str, path: str, detail: str) -> None:
         """Record a fail-open skip. Dedupes identical (kind, path, detail)."""
@@ -438,7 +455,7 @@ class OpenAPIDiffEngine:
                     f"{operation_id}:request",
                     old_content[content_type].get("schema", {}),
                     new_content[content_type].get("schema", {}),
-                    context="request",
+                    context=self._ctx("request"),
                 )
 
     def _compare_responses(self, operation_id: str, old_responses: Dict, new_responses: Dict):
@@ -485,7 +502,7 @@ class OpenAPIDiffEngine:
                         f"{operation_id}:{code}",
                         old_content[content_type].get("schema", {}),
                         new_content[content_type].get("schema", {}),
-                        context="response",
+                        context=self._ctx("response"),
                     )
             elif "schema" in old_resp or "schema" in new_resp:
                 # Swagger 2.0 style inline schema
@@ -493,7 +510,7 @@ class OpenAPIDiffEngine:
                     f"{operation_id}:{code}",
                     old_resp.get("schema", {}),
                     new_resp.get("schema", {}),
-                    context="response",
+                    context=self._ctx("response"),
                 )
     
     def _resolve_local_ref(self, ref: Optional[str], root: Dict) -> Optional[Dict]:

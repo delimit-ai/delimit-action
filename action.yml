@@ -43,6 +43,10 @@ inputs:
     description: 'Boolean alias for mode=enforce. When true, fails CI on breaking changes regardless of mode. Default false (advisory).'
     required: false
     default: 'false'
+  context_aware_severity:
+    description: 'LED-1600 (opt-in, default false): direction-aware breaking severity. When true, a required field ADDED to a response body and a request-field removal are treated as non-breaking (consumers ignore extra response fields; the server stops requiring a request field). Response-field removals and required->optional relaxations are ALWAYS flagged regardless of this flag. Leave false to keep the conservative, direction-agnostic verdicts.'
+    required: false
+    default: 'false'
   generator_command:
     description: 'Optional shell command that regenerates a generated artifact (e.g. "pnpm run schema:export"). When set, Delimit runs this command in a sandbox and diffs the regenerated output against the committed artifact to detect drift between source-of-truth and committed file. Pair with generator_artifact.'
     required: false
@@ -288,6 +292,7 @@ runs:
                 include_semver=True,
                 current_version=current_version,
                 api_name=api_name,
+                context_aware=("${{ inputs.context_aware_severity }}" == "true"),
             )
 
         # Generator drift check (LED-713) — opt-in via generator_command + generator_artifact

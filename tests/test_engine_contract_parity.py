@@ -137,7 +137,10 @@ CONTRACT = {
 @pytest.mark.parametrize("name", sorted(CONTRACT))
 def test_engine_matches_shared_contract(name):
     old, new, expected = CONTRACT[name]
-    changes = OpenAPIDiffEngine().compare(old, new)
+    # LED-1600 direction-aware severity is opt-in (default off). The led1600_*
+    # contract cases document that feature's behavior, so exercise it enabled;
+    # all other cases assert the conservative default-off baseline.
+    changes = OpenAPIDiffEngine(context_aware=name.startswith("led1600")).compare(old, new)
     actual = sorted((c.type.value, c.path) for c in changes if c.is_breaking)
     assert actual == sorted(expected), (
         f"engine drifted from shared contract on '{name}':\n"

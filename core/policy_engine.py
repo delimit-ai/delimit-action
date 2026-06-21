@@ -341,15 +341,21 @@ def evaluate_with_policy(
     include_semver: bool = False,
     current_version: Optional[str] = None,
     api_name: Optional[str] = None,
+    context_aware: bool = False,
 ) -> Dict[str, Any]:
     """
     Main entry point for policy evaluation.
+
+    Args:
+        context_aware: LED-1600 opt-in. When True, breaking severity is
+            request/response-direction-aware (response-side additions downgrade
+            to non-breaking). Default False keeps the conservative verdicts.
 
     Returns:
         Dictionary with violations, summary, and decision.
     """
     # Run diff engine
-    diff_engine = OpenAPIDiffEngine()
+    diff_engine = OpenAPIDiffEngine(context_aware=context_aware)
     changes = diff_engine.compare(old_spec, new_spec)
 
     # Run policy engine

@@ -66,7 +66,10 @@ def _req_spec(props, required=None):
 
 
 def _diff(old, new):
-    return OpenAPIDiffEngine().compare(old, new)
+    # This suite exercises the LED-1600 context-aware severity FEATURE, which is
+    # opt-in (default off). Enable it explicitly so these assertions test the
+    # direction-aware behavior rather than the conservative default.
+    return OpenAPIDiffEngine(context_aware=True).compare(old, new)
 
 
 def _find(changes, ct, name):
@@ -240,3 +243,42 @@ class TestComponentSchemaConservative:
         assert removed and removed[0].context is None
         assert removed[0].is_breaking is True  # conservative
         assert classify(changes) == SemverBump.MAJOR
+
+
+class TestRolloutFlagGatesDowngradesOnly:
+    """LED-1600 rollout gate (founder decision 2026-06-21): the direction-aware
+    DOWNGRADE is opt-in (context_aware=False by default), but the NEW detections
+    (response-field removal + required->optional) ship ALWAYS-ON. Locks both
+    halves so a future change can't silently flip either."""
+
+    @staticmethod
+    def _resp(props, req):
+        return {"openapi": "3.0.0", "info": {"title": "t", "version": "1"},
+                "paths": {"/u": {"get": {"responses": {"200": {"description": "ok",
+                "content": {"application/json": {"schema": {"type": "object",
+                "properties": props, "required": req}}}}}}}}}
+
+    def test_response_add_downgrade_is_OFF_by_default(self):
+        old = self._resp({"id": {"type": "string"}}, ["id"])
+        new = self._resp({"id": {"type": "string"}, "add": {"type": "string"}}, ["id", "add"])
+        adds = [c for c in OpenAPIDiffEngine().compare(old, new)
+                if c.type == ChangeType.REQUIRED_FIELD_ADDED]
+        assert adds and all(c.is_breaking for c in adds), \
+            "default-off engine must NOT apply the direction-aware downgrade"
+
+    def test_response_add_downgrade_is_ON_with_flag(self):
+        old = self._resp({"id": {"type": "string"}}, ["id"])
+        new = self._resp({"id": {"type": "string"}, "add": {"type": "string"}}, ["id", "add"])
+        adds = [c for c in OpenAPIDiffEngine(context_aware=True).compare(old, new)
+                if c.type == ChangeType.REQUIRED_FIELD_ADDED]
+        assert adds and not any(c.is_breaking for c in adds), \
+            "flag-on must downgrade a required field added to a response"
+
+    def test_new_detections_ship_even_with_flag_OFF(self):
+        # required->optional in a response: a NEW detection that ships always-on
+        old = self._resp({"id": {"type": "string"}}, ["id"])
+        new = self._resp({"id": {"type": "string"}}, [])
+        relaxed = [c for c in OpenAPIDiffEngine().compare(old, new)
+                   if c.type == ChangeType.FIELD_REQUIREMENT_RELAXED]
+        assert relaxed and all(c.is_breaking for c in relaxed), \
+            "the new required->optional detection must ship even with the flag off"
