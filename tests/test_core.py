@@ -365,6 +365,18 @@ class TestCIFormatterMarkdown(unittest.TestCase):
         output = formatter.format_result(self.result_safe)
         self.assertIn("Governance Passed", output)
 
+    def test_markdown_breaking_has_reports_link(self):
+        # LED-3712: worked-example reports link appears on the breaking path.
+        formatter = CIFormatter(OutputFormat.MARKDOWN)
+        output = formatter.format_result(self.result_breaking)
+        self.assertIn("https://delimit.ai/reports", output)
+
+    def test_markdown_safe_has_reports_link(self):
+        # LED-3712: worked-example reports link also appears on the clean path.
+        formatter = CIFormatter(OutputFormat.MARKDOWN)
+        output = formatter.format_result(self.result_safe)
+        self.assertIn("https://delimit.ai/reports", output)
+
     def test_text_format(self):
         formatter = CIFormatter(OutputFormat.TEXT)
         output = formatter.format_result(self.result_breaking)
