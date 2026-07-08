@@ -203,6 +203,14 @@ class CIFormatter:
             lines.append("> **Fix locally:** `npx delimit-cli lint`\n")
 
         lines.append("---")
+        # Worked-example reports link (LED-3712): our own broadcast surface \u2014
+        # shows how Delimit governs real-world API changes. General /reports link;
+        # a per-repo deep-link is a future enhancement (the reports manifest lives
+        # in the gateway repo, not in the Action, so the slug isn't resolvable here).
+        lines.append(
+            "\U0001f4ca See how Delimit governs real API changes: "
+            "[delimit.ai/reports](https://delimit.ai/reports)\n"
+        )
         lines.append(
             "Powered by [Delimit](https://delimit.ai) \u00b7 "
             "[Docs](https://delimit.ai/docs) \u00b7 "
