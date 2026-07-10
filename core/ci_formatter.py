@@ -207,9 +207,12 @@ class CIFormatter:
         # shows how Delimit governs real-world API changes. General /reports link;
         # a per-repo deep-link is a future enhancement (the reports manifest lives
         # in the gateway repo, not in the Action, so the slug isn't resolvable here).
+        # ?src=action-comment tags this inbound source so GA4 (on our own surface,
+        # delimit.ai) can attribute funnel traffic that originated in this PR
+        # comment. Measurement only \u2014 no phone-home from the Action itself.
         lines.append(
             "\U0001f4ca See how Delimit governs real API changes: "
-            "[delimit.ai/reports](https://delimit.ai/reports)\n"
+            "[delimit.ai/reports](https://delimit.ai/reports?src=action-comment)\n"
         )
         lines.append(
             "Powered by [Delimit](https://delimit.ai) \u00b7 "
