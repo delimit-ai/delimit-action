@@ -603,6 +603,14 @@ Verify the path relative to the repository root. Common locations:
 
 Delimit searches for an existing comment containing "Delimit" from a bot user and updates it in place. If you see duplicates, ensure `github_token` has `pull-requests: write` permission.
 
+### The action ran on a fork PR but no comment appeared
+
+This is expected and handled gracefully. GitHub issues pull requests **from forks** a **read-only `GITHUB_TOKEN`** by design, so the comment API returns `403` no matter what `permissions:` your workflow grants — a permissions block cannot override the fork-token downgrade.
+
+When this happens Delimit writes the **exact same governance report to the job summary** (the "Summary" tab of the run), which is always writable. Your finding stays visible on the run page; the action never fails over a blocked comment (advisory by default).
+
+If you specifically want inline PR comments on fork PRs, the [`pull_request_target`](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#pull_request_target) event runs with a writable token — but it executes in the **base-repo context** and can be unsafe with untrusted PR code. Adopt it only after reviewing GitHub's [preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/) guidance. Same-repo (non-fork) PRs are unaffected and receive comments normally.
+
 ### Can I use this with JSON specs?
 
 Yes. Delimit supports both YAML (`.yaml`, `.yml`) and JSON (`.json`) spec files. Set the input paths accordingly.
