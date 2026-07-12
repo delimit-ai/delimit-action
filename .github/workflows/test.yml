@@ -34,7 +34,7 @@ jobs:
     # as one template, which exceeded max expression length and broke @v1 on
     # pull_request events (push self-tests skip the pull_request-gated step, so
     # neither the self-test nor yaml.safe_load caught it).
-    name: Lint action.yml (github-script no ${{ }} interpolation)
+    name: Lint action.yml (github-script has no template interpolation)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
       - name: Install lint deps
         run: pip install pyyaml pytest
 
-      - name: Required guard — no ${{ }} in any actions/github-script script
+      - name: Required guard — no template interpolation in any github-script block
         run: python -m pytest tests/test_action_yml_github_script_no_interpolation.py -v
 
       - name: Defense-in-depth — actionlint (official rhysd image, pinned)
