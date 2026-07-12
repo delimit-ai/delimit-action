@@ -370,12 +370,15 @@ class TestCIFormatterMarkdown(unittest.TestCase):
         formatter = CIFormatter(OutputFormat.MARKDOWN)
         output = formatter.format_result(self.result_breaking)
         self.assertIn("https://delimit.ai/reports", output)
+        # Distribution measurement: the inbound src is tagged for GA4 attribution.
+        self.assertIn("src=action-comment", output)
 
     def test_markdown_safe_has_reports_link(self):
         # LED-3712: worked-example reports link also appears on the clean path.
         formatter = CIFormatter(OutputFormat.MARKDOWN)
         output = formatter.format_result(self.result_safe)
         self.assertIn("https://delimit.ai/reports", output)
+        self.assertIn("src=action-comment", output)
 
     def test_text_format(self):
         formatter = CIFormatter(OutputFormat.TEXT)
