@@ -485,6 +485,7 @@ runs:
         DELIMIT_ATTESTATION_URL: ${{ steps.attest.outputs.permalink }}
         DELIMIT_WORKFLOW_REF: ${{ github.workflow_ref }}
         DELIMIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        DELIMIT_MODE: ${{ inputs.mode }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
@@ -607,7 +608,7 @@ runs:
           const bc = summary.breaking_changes || 0;
           const total = summary.total_changes || 0;
           const additive = total - bc;
-          const mode = '${{ inputs.mode }}';
+          const mode = process.env.DELIMIT_MODE || '';
 
           // JSON Schema spec type — minimal render covering drift + classification.
           // The OpenAPI renderer below is kept unchanged for back-compat.

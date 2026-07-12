@@ -27,6 +27,37 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -v
 
+  lint-action-yml:
+    # LED-1865: catch the github-script template-interpolation class before
+    # merge. The mute-surface fix left `const mode = '${{ inputs.mode }}';`
+    # inside a ~479-line github-script block; GitHub evaluates the whole block
+    # as one template, which exceeded max expression length and broke @v1 on
+    # pull_request events (push self-tests skip the pull_request-gated step, so
+    # neither the self-test nor yaml.safe_load caught it).
+    name: Lint action.yml (github-script no ${{ }} interpolation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint deps
+        run: pip install pyyaml pytest
+
+      - name: Required guard — no ${{ }} in any actions/github-script script
+        run: python -m pytest tests/test_action_yml_github_script_no_interpolation.py -v
+
+      - name: Defense-in-depth — actionlint (official rhysd image, pinned)
+        # Non-blocking belt-and-suspenders. The pytest guard above is the
+        # authoritative LED-1865 gate; actionlint adds broader workflow linting.
+        continue-on-error: true
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" --workdir /repo \
+            rhysd/actionlint:1.7.7 -color
+
   self-test-advisory:
     name: Self-test (advisory mode, breaking fixtures)
     runs-on: ubuntu-latest
