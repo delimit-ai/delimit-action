@@ -3,7 +3,7 @@ description: |
   Merge gate for AI-written code, with signed, replayable attestation on every PR.
 
   Delimit diffs your OpenAPI spec against the base branch and posts a governance PR comment with:
-  - Breaking vs non-breaking change classification (27 types)
+  - Breaking vs non-breaking change classification (28 types)
   - Governance gate status (lint, policy, security, deploy readiness)
   - Enforcement chain visualization (lint, semver, security, evidence)
   - Severity badges and semver impact
