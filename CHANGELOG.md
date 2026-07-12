@@ -2,6 +2,18 @@
 
 All notable changes to the Delimit GitHub Action will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Fork-PR "mute surface" — the report now always reaches the contributor.** On pull requests from a fork, GitHub issues a read-only `GITHUB_TOKEN`, so the PR-comment step `403`s no matter what `permissions:` the workflow grants. Previously the action fell silent (no comment, empty attestation vars) and the warning misdiagnosed the cause — it told users to add a `permissions:` block that cannot fix a fork-token downgrade. Now, on a comment-post `403`, the same governance report is written to `$GITHUB_STEP_SUMMARY` (always writable, even on fork PRs), so the finding stays visible on the run page. The warning text is corrected to explain the fork read-only-token cause and points at `pull_request_target` (with its security caveat) rather than a permissions block. Same-repo PRs are unaffected — they still receive comments exactly as before. Additive/defensive only; the action never fails over a blocked comment.
+- **Refreshed deprecated action pins** — `actions/setup-python@v4` → `@v5`, `actions/github-script@v6` → `@v7` (off deprecated Node 16). `actions/upload-artifact@v4` is already current.
+
+### Tests
+- New `tests/test_action_yml_fork_summary_fallback.py` — static assertions on the fallback + corrected message, plus a Node-executed test that runs the embedded `github-script` JS with a mock client throwing `403` and asserts the summary fallback fires and the fork warning is emitted.
+
+### Note
+- This is a **build, not a deploy.** The `@v1` floating tag is **not** moved by this change. harbor and harbor-next are named production consumers of `@v1`; moving the tag is a production deploy that requires the full deploy-gate chain + explicit founder approval.
+
 ## [1.11.3] - 2026-04-25
 
 ### Features

@@ -108,7 +108,7 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -478,7 +478,7 @@ runs:
 
     - name: Comment on PR
       if: always() && github.event_name == 'pull_request'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v7
       env:
         DELIMIT_ATTESTATION_ID: ${{ steps.attest.outputs.attestation_id }}
         DELIMIT_ATTESTATION_REKOR: ${{ steps.attest.outputs.rekor_log_index }}
@@ -495,6 +495,80 @@ runs:
           } catch (e) {
             console.log('No report file found, skipping PR comment');
             return;
+          }
+
+          // LED-mute-surface — the working install is silent when the comment
+          // cannot post. Fork PRs get a READ-ONLY GITHUB_TOKEN by design, so
+          // github.rest.issues.createComment 403s no matter what `permissions:`
+          // the workflow grants. The job summary ($GITHUB_STEP_SUMMARY) is
+          // ALWAYS writable, so on a comment-post 403 we fall back to writing
+          // the same report there — the finding stays visible on the run page.
+          // Returns true if the summary was written.
+          async function writeReportToSummary(mdBody) {
+            try {
+              await core.summary.addRaw(mdBody).write();
+              return true;
+            } catch (se) {
+              // Extremely defensive: GITHUB_STEP_SUMMARY should always be set
+              // on a GitHub-hosted runner. Fall back to a raw append.
+              try {
+                const p = process.env.GITHUB_STEP_SUMMARY;
+                if (p) {
+                  fs.appendFileSync(p, '\n' + mdBody + '\n');
+                  return true;
+                }
+              } catch (se2) {
+                // Give up on the summary too — but NEVER fail the job over
+                // an advisory comment/summary. Pass/fail is owned by the
+                // dedicated "Enforce breaking change policy" step.
+              }
+              return false;
+            }
+          }
+
+          // Detect a fork PR (head repo differs from base repo). GitHub issues
+          // fork PRs a read-only token, which is the real cause of the comment
+          // 403 — NOT a missing `permissions:` block.
+          function detectForkPR() {
+            const pr = context.payload.pull_request || {};
+            const headRepo = pr.head && pr.head.repo ? pr.head.repo.full_name : null;
+            const baseRepo = pr.base && pr.base.repo ? pr.base.repo.full_name : null;
+            return {
+              isFork: !!(headRepo && baseRepo && headRepo !== baseRepo),
+              headRepo,
+              baseRepo,
+            };
+          }
+
+          // Compose the corrected comment-403 warning. For fork PRs it explains
+          // the read-only-token downgrade (a `permissions:` block cannot fix
+          // it); for same-repo PRs it keeps the actionable permissions hint.
+          async function warnCommentBlocked(mdBody, verdictLabel) {
+            const wrote = await writeReportToSummary(mdBody);
+            const where = wrote
+              ? 'The full governance report has been written to this run’s Job Summary instead (see the "Summary" tab of this job).'
+              : 'The report could not be written to the Job Summary either.';
+            const { isFork, headRepo, baseRepo } = detectForkPR();
+            if (isFork) {
+              core.warning(
+                'Delimit could not post its PR comment because this pull request comes from a fork (' +
+                headRepo + ' → ' + baseRepo + '). GitHub issues fork PRs a read-only GITHUB_TOKEN by ' +
+                'design, so the comment API returns 403 even when your workflow grants ' +
+                '`permissions: pull-requests: write` — a permissions block cannot override the ' +
+                'fork-token downgrade. ' + where + ' Verdict: ' + verdictLabel + '. ' +
+                'If you want inline comments on fork PRs, the `pull_request_target` event runs with a ' +
+                'writable token, but it executes in the base-repo context and can be unsafe with untrusted ' +
+                'PR code — adopt it only after reviewing GitHub’s security guidance ' +
+                '(https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/).'
+              );
+            } else {
+              core.warning(
+                'Delimit could not post the PR comment (HTTP 403). Your workflow is likely missing ' +
+                '`permissions: pull-requests: write` (and `issues: write` for issue comments). ' + where +
+                ' Verdict: ' + verdictLabel + '. ' +
+                'See https://github.com/delimit-ai/delimit-action#permissions for the one-line fix.'
+              );
+            }
           }
 
           // LED-1120 — Attestation footer block. Renders only when the
@@ -640,15 +714,12 @@ runs:
                 const verdict = (drift && drift.drifted) || (schemaChanges && schemaChanges.some(c => c.is_breaking))
                   ? 'breaking'
                   : 'green';
-                core.warning(
-                  'Delimit could not post the JSON Schema summary comment — ' +
-                  'workflow is missing `permissions: pull-requests: write` (and `issues: write` for issue comments). ' +
-                  'Analysis verdict: ' + verdict + '. ' +
-                  'See https://github.com/delimit-ai/delimit-action#permissions for the one-line fix.'
-                );
+                // LED-mute-surface: fall back to the always-writable job
+                // summary and emit the corrected fork-token diagnosis.
+                await warnCommentBlocked(body, verdict);
                 // Do not rethrow — the analysis already ran. Final fail/pass
-                // is owned by the dedicated "Fail on breaking changes" step,
-                // not by whether the comment landed.
+                // is owned by the dedicated "Enforce breaking change policy"
+                // step, not by whether the comment landed.
               } else {
                 throw err;
               }
@@ -881,16 +952,15 @@ runs:
             }
           } catch (err) {
             if (err && err.status === 403) {
-              const verdict = bc > 0 ? 'breaking' : (mode === 'advisory' ? 'advisory' : 'green');
-              core.warning(
-                'Delimit could not post the PR summary comment — ' +
-                'workflow is missing `permissions: pull-requests: write` (and `issues: write` for issue comments). ' +
-                'Analysis verdict: ' + verdict + ' (' + bc + ' breaking change' + (bc !== 1 ? 's' : '') + '). ' +
-                'See https://github.com/delimit-ai/delimit-action#permissions for the one-line fix.'
-              );
+              const verdictBase = bc > 0 ? 'breaking' : (mode === 'advisory' ? 'advisory' : 'green');
+              const verdict = verdictBase + ' (' + bc + ' breaking change' + (bc !== 1 ? 's' : '') + ')';
+              // LED-mute-surface: fall back to the always-writable job summary
+              // and emit the corrected fork-token diagnosis instead of the
+              // (wrong) "add a permissions block" advice for fork PRs.
+              await warnCommentBlocked(body, verdict);
               // Do not rethrow — analysis already ran. Final job pass/fail is
-              // owned by the "Fail on breaking changes" step, not by whether
-              // the comment landed.
+              // owned by the "Enforce breaking change policy" step, not by
+              // whether the comment landed.
             } else {
               throw err;
             }
