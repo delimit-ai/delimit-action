@@ -1,20 +1,19 @@
-name: 'Delimit API Governance'
+name: 'Delimit — Merge Gate for AI-Written Code'
 description: |
-  Merge gate for AI-written code, with signed, replayable attestation on every PR.
+  Catch breaking API changes on every PR — with a signed, replayable attestation any reviewer can verify.
 
-  Delimit diffs your OpenAPI spec against the base branch and posts a governance PR comment with:
-  - Breaking vs non-breaking change classification (28 types)
-  - Governance gate status (lint, policy, security, deploy readiness)
-  - Enforcement chain visualization (lint, semver, security, evidence)
-  - Severity badges and semver impact
-  - Migration guides for breaking changes
-  - Sigstore keyless-signed attestation, recorded in the public Rekor transparency log, with a verifiable delimit.ai/att/<id> permalink any reviewer can check
-  - Slack/Discord webhook notifications
+  Delimit diffs your OpenAPI / JSON Schema spec against the base branch and posts a review comment that says:
+  - What broke — breaking vs non-breaking change classification (28 types)
+  - How big — deterministic semver bump (major / minor / patch) with the computed next version
+  - How to fix — auto-generated migration guides for every breaking change
+  - What leaked — zero-config secret scan over the files changed in the PR
+  - Severity badges, governance gate status (lint, policy, security, deploy readiness), and Slack/Discord webhook notifications
 
-  Advisory mode by default. Never fails your build until you flip to enforce.
+  Advisory by default — never fails your build until you flip to enforce.
 
-  Works with OpenAPI 3.0/3.1 and JSON Schema (YAML or JSON).
-  No API keys or external services required.
+  Then it signs the result with Sigstore keyless signing, recorded in the public Rekor transparency log, with a verifiable delimit.ai/att/<id> permalink so anyone can verify the outcome without trusting the runner.
+
+  Works with OpenAPI 3.0/3.1 and JSON Schema (YAML or JSON). No API keys or external services required.
 
   Worked example: https://delimit.ai/reports/cal-com-v2-attestation
 author: 'Delimit AI'
