@@ -1,12 +1,13 @@
-# `</>` Delimit GitHub Action
+# Delimit — the merge gate for AI-written code
 
-**The merge gate for AI-written code, with signed, replayable attestation on every PR.**
+**Catch breaking API changes on every PR — with a signed, replayable attestation any reviewer can verify.**
 
-Delimit runs on every pull request, diffs your OpenAPI spec against the base branch, and posts a governance PR comment with breaking changes, semver classification, policy violations, migration guidance, and a Sigstore keyless-signed attestation any reviewer can verify. On every PR it also runs a zero-config secret scan over the changed files — deterministic, high-precision pattern detection that needs no spec and no config. No API keys, no external services, no config required to get started.
+Delimit runs on every pull request and diffs your OpenAPI / JSON Schema spec against the base branch. It posts a review comment that says what broke (breaking-change classification), how big the change is (semver bump), and how to fix it (migration guide) — plus a zero-config secret scan over the changed files. It then signs the result via Sigstore keyless signing (recorded in the public Rekor transparency log), so anyone can verify the outcome without trusting the runner. No API keys, no external services.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-api-governance)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![API Governance](https://delimit-ai.github.io/badge/pass.svg)](https://github.com/marketplace/actions/delimit-api-governance)
+[![Worked examples](https://img.shields.io/badge/worked%20examples-delimit.ai%2Freports-blue)](https://delimit.ai/reports)
 
 ## Worked examples
 
@@ -70,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
-      id-token: write          # enables the signed Sigstore attestation
+      id-token: write          # optional: enables the signed, replayable attestation
     steps:
       - uses: actions/checkout@v4
       - uses: delimit-ai/delimit-action@v1
