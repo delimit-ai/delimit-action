@@ -902,7 +902,7 @@ runs:
 
           // Footer
           body += `---\n`;
-          body += `Powered by [Delimit](https://delimit.ai) \u{00B7} [Docs](https://delimit.ai/docs) \u{00B7} [Install](https://github.com/marketplace/actions/delimit-api-governance)`;
+          body += `Powered by [Delimit](https://delimit.ai) \u{00B7} [Docs](https://delimit.ai/docs) \u{00B7} [Install](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code)`;
 
           // LED-807: wrap comment post in try/catch so a 403 from missing
           // GITHUB_TOKEN permissions does not fail the job. The actual
