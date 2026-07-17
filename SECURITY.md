@@ -51,6 +51,20 @@ calls outside the GitHub Actions control plane.**
     <release-asset>
   ```
 
+### Dependency vulnerability audit
+
+The Action's runtime dependency tree is intentionally tiny — `requirements.txt`
+pins only `pydantic`, `pyyaml`, and `packaging`, and the composite Action installs
+exactly those three at runtime. That declared tree is audited with
+[`pip-audit`](https://pypi.org/project/pip-audit/) and currently reports **no known
+vulnerabilities**.
+
+Because the runtime closure is minimal by design, common transitive CVE carriers
+(JWT/JOSE libraries, HTML parsers, signature helpers, and similar) are **not** part
+of what the Action installs into your CI runner, so findings against those packages
+in a broader build or tooling environment do not reach the Action's runtime surface.
+We still track and remediate such findings as build-environment hygiene.
+
 ### Runtime surface
 
 *What the Action does when it runs in your CI runner:*
