@@ -217,7 +217,7 @@ class CIFormatter:
         lines.append(
             "Powered by [Delimit](https://delimit.ai) \u00b7 "
             "[Docs](https://delimit.ai/docs) \u00b7 "
-            "[Install](https://github.com/marketplace/actions/delimit-api-governance)"
+            "[Install](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code)"
         )
 
         if bc == 0:
