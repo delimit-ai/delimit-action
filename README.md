@@ -4,9 +4,9 @@
 
 Delimit runs on every pull request and diffs your OpenAPI / JSON Schema spec against the base branch. It posts a review comment that says what broke (breaking-change classification), how big the change is (semver bump), and how to fix it (migration guide) — plus a zero-config secret scan over the changed files. It then signs the result via Sigstore keyless signing (recorded in the public Rekor transparency log), so anyone can verify the outcome without trusting the runner. No API keys, no external services.
 
-[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-api-governance)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![API Governance](https://delimit-ai.github.io/badge/pass.svg)](https://github.com/marketplace/actions/delimit-api-governance)
+[![API Governance](https://delimit-ai.github.io/badge/pass.svg)](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code)
 [![Worked examples](https://img.shields.io/badge/worked%20examples-delimit.ai%2Freports-blue)](https://delimit.ai/reports)
 
 ## Worked examples
@@ -679,8 +679,8 @@ The action requires no signup. Pro and Premium are managed at [delimit.ai/pricin
 - [Worked examples](https://delimit.ai/reports) - Full attestation reports against public API specs
 - [Methodology](https://delimit.ai/methodology/mcp-attestation) - How signing and replay work
 - [Pricing](https://delimit.ai/pricing) - Free, Pro, Premium, Enterprise
-- [GitHub Repository](https://github.com/delimit-ai/delimit) - Source code and issues
-- [GitHub Action Marketplace](https://github.com/marketplace/actions/delimit-api-governance) - Install from Marketplace
+- [GitHub Repository](https://github.com/delimit-ai/delimit-action) - Source code and issues
+- [GitHub Action Marketplace](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code) - Install from Marketplace
 
 ---
 
