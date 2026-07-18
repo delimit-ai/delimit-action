@@ -429,6 +429,7 @@ runs:
         RUN_ID="${{ github.run_id }}"
         urlencode() { printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))'; }
         QS="rekor=$REKOR_INDEX"
+        QS+="&src=action-comment"
         QS+="&repo=$(urlencode "$GITHUB_REPOSITORY")"
         if [ -n "$PR_NUM" ]; then QS+="&pr=$PR_NUM"; fi
         QS+="&commit=$GITHUB_SHA"
@@ -666,6 +667,7 @@ runs:
             if (attestationFooter) body += attestationFooter;
 
             body += `---\n`;
+            body += `See how this was checked: [worked examples on real diffs](https://delimit.ai/reports?src=action-comment)\n\n`;
             body += `Powered by [Delimit](https://github.com/delimit-ai/delimit-action) — API governance for every PR`;
 
             // LED-807: wrap comment post in try/catch so a 403 from
@@ -902,6 +904,7 @@ runs:
 
           // Footer
           body += `---\n`;
+          body += `See how this was checked: [worked examples on real diffs](https://delimit.ai/reports?src=action-comment)\n\n`;
           body += `Powered by [Delimit](https://delimit.ai) \u{00B7} [Docs](https://delimit.ai/docs) \u{00B7} [Install](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code)`;
 
           // LED-807: wrap comment post in try/catch so a 403 from missing
