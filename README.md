@@ -614,7 +614,17 @@ This is expected and handled gracefully. GitHub issues pull requests **from fork
 
 When this happens Delimit writes the **exact same governance report to the job summary** (the "Summary" tab of the run), which is always writable. Your finding stays visible on the run page; the action never fails over a blocked comment (advisory by default).
 
-If you specifically want inline PR comments on fork PRs, the [`pull_request_target`](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#pull_request_target) event runs with a writable token — but it executes in the **base-repo context** and can be unsafe with untrusted PR code. Adopt it only after reviewing GitHub's [preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/) guidance. Same-repo (non-fork) PRs are unaffected and receive comments normally.
+If you want inline PR comments on fork PRs the SAFE way, adopt the optional
+**comment relay** workflow: copy [`examples/delimit-comment.yml`](examples/delimit-comment.yml)
+into `.github/workflows/` and point its `workflows:` filter at your schema-check
+workflow's name. It runs `workflow_run` in the base-repo context with a writable
+token, downloads the report artifact the action uploads on fork PRs, derives the
+PR number from the trusted event payload (never from artifact contents), and
+posts the comment — without ever checking out or executing PR code. The relay is
+pwn-request-safe by construction; the security model is documented at the top of
+the example file.
+
+Alternatively, the [`pull_request_target`](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#pull_request_target) event runs with a writable token — but it executes in the **base-repo context** and can be unsafe with untrusted PR code. Adopt it only after reviewing GitHub's [preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/) guidance. Same-repo (non-fork) PRs are unaffected and receive comments normally.
 
 ### Can I use this with JSON specs?
 
