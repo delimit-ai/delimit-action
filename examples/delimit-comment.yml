@@ -14,9 +14,14 @@
 #   * The report artifact was produced in the UNTRUSTED PR context. It is
 #     treated as DATA: rendered as inert markdown text in a comment body,
 #     never evaluated, never interpolated into scripts, and length-capped.
-#   * The PR number is derived from the TRUSTED workflow_run payload
-#     (head_sha -> commit-PRs lookup) — never from artifact contents, which
-#     an attacker controls.
+#   * The PR number is derived from the TRUSTED workflow_run payload:
+#     resolution requires EXACTLY ONE open PR matching both head_sha AND
+#     head repo (commit-reuse defense — commits are shared across the fork
+#     network, so a bare commit->PR lookup is forgeable). Never from
+#     artifact contents, which an attacker controls.
+#   * Only successful FORK-PR runs relay (same-repo PRs already got the
+#     direct comment); @-mentions in report text are neutralized; actions
+#     are SHA-pinned.
 #   * Permissions are the minimum for the job: pull-requests: write.
 #
 # INSTALL: copy to .github/workflows/delimit-comment.yml in your repo and
@@ -34,14 +39,19 @@ permissions:
 
 jobs:
   comment:
-    # Only relay for PR-triggered runs that actually completed.
-    if: github.event.workflow_run.event == 'pull_request'
+    # Only relay SUCCESSFUL fork-PR runs: same-repo PRs already received
+    # the direct comment (double-comment guard), and failed/cancelled
+    # runs produce no trustworthy report.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name != github.repository
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     steps:
       - name: Download report artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: delimit-report
           path: report
@@ -50,10 +60,11 @@ jobs:
         continue-on-error: true
 
       - name: Post comment from base-repo context
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           # Trusted payload values only — the artifact never supplies these.
           DELIMIT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DELIMIT_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
           DELIMIT_RUN_URL: ${{ github.event.workflow_run.html_url }}
         with:
           script: |
@@ -70,17 +81,29 @@ jobs:
               return;
             }
 
-            // 2. PR number from the TRUSTED head SHA, never from the artifact.
+            // 2. PR number from TRUSTED payload values, never from the artifact.
+            //    COMMIT-REUSE DEFENSE (panel-demanded): commits are shared
+            //    across the fork network, so an attacker can graft a victim
+            //    PR's head commit onto their own fork PR and make a bare
+            //    commit->PR lookup ambiguous. Resolution therefore requires
+            //    EXACTLY ONE open PR whose head sha AND head repo both match
+            //    the triggering run's trusted payload; anything else aborts.
+            const headRepo = process.env.DELIMIT_HEAD_REPO;
             const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
               commit_sha: headSha,
             });
-            const pr = (prs.data || []).find(p => p.state === 'open');
-            if (!pr) {
-              console.log(`No open PR found for head ${headSha} — skipping.`);
+            const matches = (prs.data || []).filter(p =>
+              p.state === 'open'
+              && p.head && p.head.sha === headSha
+              && p.head.repo && p.head.repo.full_name === headRepo);
+            if (matches.length !== 1) {
+              console.log(`PR resolution not unique (${matches.length} match(es) for `
+                + `${headSha} @ ${headRepo}) — aborting, never guessing.`);
               return;
             }
+            const pr = matches[0];
 
             // 3. Render the report as inert markdown. Numbers are coerced,
             //    free text is fenced and length-capped; nothing from the
@@ -88,7 +111,10 @@ jobs:
             const breaking = Number(report.breaking) || 0;
             const nonBreaking = Number(report.non_breaking) || 0;
             const cap = (s, n) => String(s == null ? '' : s).slice(0, n);
-            const detail = cap(report.summary_markdown || report.summary || '', 20000);
+            // Neutralize @-mentions in attacker-influenced text: a report
+            // body must never be able to ping users/teams from our comment.
+            const noMention = (s) => s.replace(/@/g, '@\u200b');
+            const detail = noMention(cap(report.summary_markdown || report.summary || '', 20000));
 
             let body = '## Delimit — merge gate for AI-written code\n\n';
             body += `**${breaking} breaking** · ${nonBreaking} compatible change(s)`;
