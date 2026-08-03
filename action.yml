@@ -470,13 +470,22 @@ runs:
       # number from the TRUSTED workflow_run payload (head_sha -> PR lookup),
       # never from artifact contents, which are produced in the untrusted
       # PR context.
-      if: always() && github.event_name == 'pull_request'
+      # LED-4169: FORK PRs only. The relay serves only fork PRs (same-repo
+      # PRs get the direct comment), and gating here prevents a duplicate-
+      # artifact-name 409 when the action is invoked more than once in a
+      # single same-repo workflow run (regressed the gateway's own
+      # two-invocation api-governance check). overwrite:true additionally
+      # makes a fork PR that runs the action twice safe (last report wins).
+      if: >-
+        always() && github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name != github.repository
       uses: actions/upload-artifact@v4
       with:
         name: delimit-report
         path: /tmp/delimit_report.json
         retention-days: 7
         if-no-files-found: ignore
+        overwrite: true
 
     - name: Comment on PR
       if: always() && github.event_name == 'pull_request'
