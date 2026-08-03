@@ -1,3 +1,7 @@
+<!-- linkcheck-allow: npmjs.com -->
+<!-- npmjs.com serves 403 to non-browser clients (bot protection); the package
+     page is fine in a browser. See scripts/check_readme_links.py (LED-4159). -->
+
 # Delimit — the merge gate for AI-written code
 
 **Catch breaking API changes on every PR — with a signed, replayable attestation any reviewer can verify.**

@@ -1,0 +1,41 @@
+# README link check (LED-4159)
+#
+# Origin: the Marketplace README's flagship attestation link 404'd unnoticed
+# (fixed in PR #44). This workflow catches that class of regression.
+#
+# Two triggers, two severities:
+#   - pull_request touching README.md → ADVISORY (continue-on-error): external
+#     sites flake, and a third-party outage must never block an unrelated merge.
+#   - weekly cron → NOT advisory: a link that is still dead a week later is a
+#     real signal, and a red scheduled run is the alert surface. (No automatic
+#     issue creation — that needs a token discussion first; contents: read only.)
+
+name: README Link Check
+
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+  schedule:
+    # Weekly, Monday 09:17 UTC (off the :00 spike).
+    - cron: '17 9 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    # Advisory on PRs (external-site flakiness never blocks merges);
+    # enforcing on the weekly cron and manual runs (real failure signal).
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check README links
+        run: python scripts/check_readme_links.py README.md
