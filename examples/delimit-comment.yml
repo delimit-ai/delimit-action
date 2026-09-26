@@ -22,7 +22,10 @@
 #   * Only successful FORK-PR runs relay (same-repo PRs already got the
 #     direct comment); @-mentions in report text are neutralized; actions
 #     are SHA-pinned.
-#   * Permissions are the minimum for the job: pull-requests: write.
+#   * Permissions are the minimum for the relay job: contents: read and
+#     pull-requests: write. Signing happens in the separate producer workflow;
+#     grant id-token: write there to enable signed attestations (public repos
+#     only by default; see README Privacy). The relay does not sign.
 #
 # INSTALL: copy to .github/workflows/delimit-comment.yml in your repo and
 # set `workflows:` to your schema-check workflow's `name:`.
@@ -48,6 +51,7 @@ jobs:
       github.event.workflow_run.head_repository.full_name != github.repository
     runs-on: ubuntu-latest
     permissions:
+      contents: read            # read access for repository metadata; producer checkout needs this on private repos
       pull-requests: write
     steps:
       - name: Download report artifact

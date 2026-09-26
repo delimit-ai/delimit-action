@@ -4,6 +4,13 @@ All notable changes to the Delimit GitHub Action will be documented in this file
 
 ## [Unreleased]
 
+### 1.12.0 (planned)
+- **Changed: private-repository signing is opt-in.** Signing now skips private repositories by default, even with OIDC permission. Set the new `attestation_private_repos: true` input to publish the repository and workflow identity to public Sigstore Rekor. Public repositories retain signing by default when `id-token: write` is granted.
+- Without `id-token: write`, the action now skips Cosign installation and signing immediately with one notice instead of waiting for a signing timeout.
+- An unsigned run updating a shared PR comment now keeps the prior signed-attestation footer and identifies its earlier workflow run.
+- README and example permissions now explain private checkout, signing, and Rekor privacy; the attestation-page and default-policy descriptions match observed behavior.
+- **TODO:** Extend the default response-field-removal policy to cover fields removed from `$ref`'d component schemas; currently they are breaking/MAJOR but produce zero default-policy violations.
+
 ### Fixed
 - **Fork-PR "mute surface" — the report now always reaches the contributor.** On pull requests from a fork, GitHub issues a read-only `GITHUB_TOKEN`, so the PR-comment step `403`s no matter what `permissions:` the workflow grants. Previously the action fell silent (no comment, empty attestation vars) and the warning misdiagnosed the cause — it told users to add a `permissions:` block that cannot fix a fork-token downgrade. Now, on a comment-post `403`, the same governance report is written to `$GITHUB_STEP_SUMMARY` (always writable, even on fork PRs), so the finding stays visible on the run page. The warning text is corrected to explain the fork read-only-token cause and points at `pull_request_target` (with its security caveat) rather than a permissions block. Same-repo PRs are unaffected — they still receive comments exactly as before. Additive/defensive only; the action never fails over a blocked comment.
 - **Refreshed deprecated action pins** — `actions/setup-python@v4` → `@v5`, `actions/github-script@v6` → `@v7` (off deprecated Node 16). `actions/upload-artifact@v4` is already current.
