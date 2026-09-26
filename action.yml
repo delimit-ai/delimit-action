@@ -51,9 +51,13 @@ inputs:
     required: false
     default: ''
   attestation:
-    description: 'Sign the governance report with Sigstore keyless signing and surface a verifiable permalink. Requires `id-token: write` in the calling workflow. Set to "false" to disable. (LED-1120)'
+    description: 'Sign the governance report with Sigstore keyless signing when id-token: write is granted. Public repositories sign by default; private repositories require attestation_private_repos: true. Set to "false" to disable. Signing publishes the repository and workflow identity to public Rekor.'
     required: false
     default: 'true'
+  attestation_private_repos:
+    description: 'Opt in to keyless signing on private repositories. Signing publishes the repository owner/name, workflow path, and run URL to the public Sigstore transparency log. Default false.'
+    required: false
+    default: 'false'
 
 outputs:
   breaking_changes_detected:
@@ -326,9 +330,10 @@ runs:
     # any reviewer can verify the report came from this exact (repo, commit,
     # workflow) without trusting the action runner.
     #
-    # Gracefully no-ops when:
+    # Signing is skipped when:
     #   - attestation: 'false' is set
     #   - id-token: write is not granted in the calling workflow
+    #   - the repository is private without attestation_private_repos: true
     #   - the validate step did not produce a report (no spec to compare)
     - name: Build attestation payload
       id: payload
@@ -382,13 +387,31 @@ runs:
         PAYLOAD_EOF
       shell: bash
 
+    - name: Check signing availability
+      id: signing
+      if: always() && inputs.attestation != 'false'
+      env:
+        DELIMIT_PRIVATE_REPO: ${{ github.event.repository.private }}
+        DELIMIT_PRIVATE_OPT_IN: ${{ inputs.attestation_private_repos }}
+      run: |
+        if [ "$DELIMIT_PRIVATE_REPO" = "true" ] && [ "$DELIMIT_PRIVATE_OPT_IN" != "true" ]; then
+          echo "::notice::Delimit signing skipped for this private repository: keyless signing writes the repository owner/name, workflow path and run URL to the public Sigstore transparency log. Set attestation_private_repos: true to opt in."
+          echo "oidc_available=false" >> "$GITHUB_OUTPUT"
+        elif [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          echo "::notice::Delimit signing skipped because id-token: write is not granted. Add id-token: write to the calling workflow permissions to enable signed attestations."
+          echo "oidc_available=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "oidc_available=true" >> "$GITHUB_OUTPUT"
+        fi
+      shell: bash
+
     - name: Install Cosign
-      if: always() && steps.payload.outputs.skipped == 'false'
+      if: always() && steps.payload.outputs.skipped == 'false' && steps.signing.outputs.oidc_available == 'true'
       uses: sigstore/cosign-installer@v3
 
     - name: Sign attestation (Sigstore keyless)
       id: attest
-      if: always() && steps.payload.outputs.skipped == 'false'
+      if: always() && steps.payload.outputs.skipped == 'false' && steps.signing.outputs.oidc_available == 'true'
       env:
         ATT_ID: ${{ steps.payload.outputs.attestation_id }}
       run: |
@@ -399,7 +422,7 @@ runs:
         if ! cosign sign-blob --yes \
             --bundle "$BUNDLE" \
             /tmp/delimit_attestation.json 2> /tmp/cosign.stderr; then
-          echo "::warning::cosign signing failed — likely missing 'id-token: write' permission. Add 'permissions: { id-token: write }' to your workflow to enable signed attestations."
+          echo "::warning::cosign signing failed; inspect the cosign error below."
           tail -20 /tmp/cosign.stderr || true
           {
             echo "attestation_id="
@@ -497,10 +520,12 @@ runs:
         DELIMIT_WORKFLOW_REF: ${{ github.workflow_ref }}
         DELIMIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         DELIMIT_MODE: ${{ inputs.mode }}
+        DELIMIT_ACTION_PATH: ${{ github.action_path }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
           const fs = require('fs');
+          const { mergeUnsignedAttestation } = require(process.env.DELIMIT_ACTION_PATH + '/scripts/merge_attestation_footer.js');
           let report;
           try {
             report = JSON.parse(fs.readFileSync('/tmp/delimit_report.json', 'utf8'));
@@ -712,7 +737,7 @@ runs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   comment_id: existing.id,
-                  body,
+                  body: attId ? body : mergeUnsignedAttestation(body, existing.body),
                 });
               } else {
                 await github.rest.issues.createComment({
@@ -954,7 +979,7 @@ runs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: existing.id,
-                body,
+                body: attId ? body : mergeUnsignedAttestation(body, existing.body),
               });
             } else {
               await github.rest.issues.createComment({

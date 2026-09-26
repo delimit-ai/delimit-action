@@ -6,7 +6,7 @@
 
 **Catch breaking API changes on every PR — with a signed, replayable attestation any reviewer can verify.**
 
-Delimit runs on every pull request and diffs your OpenAPI / JSON Schema spec against the base branch. It posts a review comment that says what broke (breaking-change classification), how big the change is (semver bump), and how to fix it (migration guide) — plus a zero-config secret scan over the changed files. It then signs the result via Sigstore keyless signing (recorded in the public Rekor transparency log), so anyone can verify the outcome without trusting the runner. No API keys, no external services.
+Delimit runs on every pull request and diffs your OpenAPI / JSON Schema spec against the base branch. It posts a review comment that says what broke (breaking-change classification), how big the change is (semver bump), and how to fix it (migration guide) — plus a zero-config secret scan over the changed files. Eligible runs sign the result via Sigstore keyless signing (recorded in the public Rekor transparency log), so anyone can verify the outcome without trusting the runner. No API keys are needed.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Delimit-blue)](https://github.com/marketplace/actions/delimit-merge-gate-for-ai-written-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -45,7 +45,7 @@ See the full index at [delimit.ai/reports](https://delimit.ai/reports). For the 
 - **Semver classification** — deterministic `major` / `minor` / `patch` / `none` bump recommendation with computed next version
 - **Migration guides** — auto-generated step-by-step migration instructions for every breaking change
 - **PR comments** — rich Markdown summary posted directly on your pull request, updated on each push
-- **Signed, replayable attestation per PR (v1.11.0+)** — every run produces a Sigstore keyless-signed claim, recorded in the public Rekor transparency log, with a verifiable `delimit.ai/att/<id>` permalink in the PR comment. Any reviewer can verify without trusting the runner. Add `id-token: write` to your workflow permissions; the rest is automatic.
+- **Signed, replayable attestation per PR (v1.11.0+)** — eligible runs produce a Sigstore keyless-signed claim, recorded in the public Rekor transparency log, with a verifiable `delimit.ai/att/<id>` permalink in the PR comment. Add `id-token: write` to sign public repositories; private repositories also require `attestation_private_repos: true`.
 - **Advisory and enforce modes** — start with non-blocking warnings, promote to CI-gating when ready
 - **Custom policies** — define your own governance rules in `.delimit/policies.yml` with path patterns, severity levels, and custom messages
 - **7 explainer templates** — developer, team lead, product, migration, changelog, PR comment, and Slack formats
@@ -54,7 +54,7 @@ See the full index at [delimit.ai/reports](https://delimit.ai/reports). For the 
 
 ## Replay any decision at delimit.ai/att/<id>
 
-Every signed run produces a bundle a third party can verify without trusting the runner. Click the URL printed in the PR comment and you'll land on a page like [delimit.ai/att/62b1cf675c231d99](https://delimit.ai/att/62b1cf675c231d99) — the model sequence that adjudicated, the invariants checked by the governed run, an explicit list of what the receipt does **not** attest, and a copy-paste HMAC-SHA256 verifier so reviewers, auditors, and underwriters can check the signature locally.
+Every signed run produces a bundle a third party can verify without trusting the runner. The PR comment links to a page like [delimit.ai/att/62b1cf675c231d99](https://delimit.ai/att/62b1cf675c231d99), which shows the Rekor entry, workflow identity and run context, and `cosign verify-blob` instructions for the downloadable bundle.
 
 For multi-agent teams running Claude, Codex, Gemini, and Grok in parallel, the replay URL is the proof artifact: cross-vendor adjudication is something single-vendor scanners can't ship by construction.
 
@@ -74,8 +74,9 @@ jobs:
   delimit:
     runs-on: ubuntu-latest
     permissions:
+      contents: read           # required for actions/checkout on private repos
       pull-requests: write
-      id-token: write          # optional: enables the signed, replayable attestation
+      id-token: write          # enables the signed attestation; public repos only by default, see Privacy
     steps:
       - uses: actions/checkout@v4
       - uses: delimit-ai/delimit-action@v1
@@ -85,7 +86,13 @@ jobs:
 
 That is it. Delimit auto-fetches the base branch version of your spec and diffs it against the PR changes. Runs in **advisory mode** by default — posts a PR comment but never fails your build.
 
-`id-token: write` enables Sigstore keyless signing of the result. Every PR comment gets a verifiable `delimit.ai/att/<id>` permalink that any reviewer can inspect. If you don't grant this permission, the action gracefully no-ops the signing step and the comment falls back to the unsigned shape.
+`id-token: write` enables Sigstore keyless signing of the result when the repository permits it. Signed PR comments get a verifiable `delimit.ai/att/<id>` permalink. Without this permission, the action skips signing immediately with a notice.
+
+### Privacy: what signing publishes
+
+Keyless signing records a hash of the attestation payload and its Fulcio certificate identity in the public Sigstore Rekor transparency log. That identity names the repository owner/name, workflow path and ref, and run URL. The report contents, API specs, and source code are not written to Rekor. The signed payload and bundle are stored as workflow artifacts.
+
+Public repositories sign by default when `id-token: write` is available. Private repositories do not sign by default, even with that permission. Set `attestation_private_repos: true` to opt in, or `attestation: false` to disable signing in any repository. An unsigned run updating a prior signed PR comment retains the earlier attestation and labels it as belonging to the earlier run.
 
 ### What the PR comment looks like
 
@@ -136,7 +143,9 @@ jobs:
   api-check:
     runs-on: ubuntu-latest
     permissions:
+      contents: read           # required for actions/checkout on private repos
       pull-requests: write
+      id-token: write          # enables the signed attestation; public repos only by default, see Privacy
     steps:
       - uses: actions/checkout@v4
 
@@ -180,6 +189,8 @@ jobs:
 | `webhook_url` | No | `''` | Slack or Discord webhook URL. Delimit posts a notification when breaking changes are detected. Auto-detects the platform from the URL. |
 | `generator_command` | No | `''` | Optional shell command that regenerates a generated artifact (e.g. `pnpm run schema:export`). When set, Delimit runs this command in a sandbox and diffs the regenerated output against the committed artifact to detect drift between source-of-truth and committed file. Pair with `generator_artifact`. See [Generator drift detection](#generator-drift-detection). |
 | `generator_artifact` | No | `''` | Path to the generated artifact that `generator_command` produces (e.g. `schemas/v1/agent.schema.json`). Required when `generator_command` is set. |
+| `attestation` | No | `true` | Enable signing when OIDC is available. Public repositories sign by default; private repositories require opt in. |
+| `attestation_private_repos` | No | `false` | Opt in to public Sigstore logging of the repository and workflow identity for private repositories. See [Privacy](#privacy-what-signing-publishes). |
 
 > **Note**: Provide either `spec` for pull request workflows, or both `old_spec` and `new_spec` for explicit comparisons. If neither form is provided, the action exits with an error.
 
@@ -359,7 +370,7 @@ Delimit ships with 6 built-in rules that are always active unless you set `overr
 1. **Forbid Endpoint Removal** — endpoints cannot be removed (error)
 2. **Forbid Method Removal** — HTTP methods cannot be removed (error)
 3. **Forbid Required Parameter Addition** — new required params break clients (error)
-4. **Forbid Response Field Removal** — removing fields from 2xx responses (error)
+4. **Forbid Response Field Removal** — removing inline fields from 2xx responses (error). A field removed from a `$ref`'d component schema is still classified breaking (MAJOR), but the default policy currently reports no violation for it.
 5. **Warn on Type Changes** — type changes flagged as warnings
 6. **Allow Enum Expansion** — adding enum values is always safe (info)
 
@@ -457,7 +468,9 @@ jobs:
   api-check:
     runs-on: ubuntu-latest
     permissions:
+      contents: read           # required for actions/checkout on private repos
       pull-requests: write
+      id-token: write          # enables the signed attestation; public repos only by default, see Privacy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -480,7 +493,9 @@ jobs:
   api-check:
     runs-on: ubuntu-latest
     permissions:
+      contents: read           # required for actions/checkout on private repos
       pull-requests: write
+      id-token: write          # enables the signed attestation; public repos only by default, see Privacy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -511,6 +526,10 @@ jobs:
 jobs:
   api-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read           # required for actions/checkout on private repos
+      pull-requests: write
+      id-token: write          # enables the signed attestation; public repos only by default, see Privacy
     outputs:
       breaking: ${{ steps.delimit.outputs.breaking_changes_detected }}
       bump: ${{ steps.delimit.outputs.semver_bump }}

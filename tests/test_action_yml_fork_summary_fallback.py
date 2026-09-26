@@ -26,6 +26,7 @@ Two layers of assertion:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -172,6 +173,7 @@ def _run_scenario(tmp: Path, scenario: str, report: dict) -> dict:
         capture_output=True,
         text=True,
         timeout=30,
+        env={**os.environ, "DELIMIT_ACTION_PATH": str(Path(__file__).resolve().parents[1])},
     )
     assert proc.returncode == 0, f"harness failed: {proc.stdout}\n{proc.stderr}"
     return json.loads(proc.stdout.strip().splitlines()[-1])
